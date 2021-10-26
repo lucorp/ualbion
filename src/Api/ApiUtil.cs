@@ -37,7 +37,7 @@ namespace UAlbion.Api
         /// </summary>
         /// <param name="numbers"></param>
         /// <returns></returns>
-        public static long Lcm(IEnumerable<long> numbers) => numbers.Aggregate(Lcm);
+        public static long Lcm(IEnumerable<long> numbers) => numbers.Aggregate(1L, Lcm);
 
         /// <summary>
         /// Calculate the lowest common multiple of two numbers.
@@ -67,7 +67,7 @@ namespace UAlbion.Api
         /// <param name="height"></param>
         /// <param name="from"></param>
         /// <param name="to"></param>
-        public static void TransposeImage(int width, int height, ReadOnlySpan<byte> from, Span<byte> to)
+        public static void TransposeImage<T>(int width, int height, ReadOnlySpan<T> from, Span<T> to)
         {
             if (to.Length < width * height)
                 throw new ArgumentOutOfRangeException(
@@ -117,6 +117,7 @@ namespace UAlbion.Api
             CoreTrace.Log.AssertFailed(message);
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303:Do not pass literals as localized parameters", Justification = "Don't care")]
         public static void Assert(bool condition)
         {
             if (!condition)
@@ -129,9 +130,9 @@ namespace UAlbion.Api
                 Assert($"Assertion failed! {message}");
         }
 
-        public static bool IsFlagsEnum(Type type) => type != null && type.IsEnum && type.GetCustomAttribute(typeof(FlagsAttribute)) != null;
+        public static bool IsFlagsEnum(Type type) => type is {IsEnum: true} && type.GetCustomAttribute(typeof(FlagsAttribute)) != null;
 
-        public static (byte, byte, byte, byte) UnpackColor(uint c)
+        public static (byte r, byte g, byte b, byte a) UnpackColor(uint c)
         {
             var r = (byte)(c & 0xff);
             var g = (byte)((c >> 8) & 0xff);

@@ -45,11 +45,11 @@ namespace UAlbion.Formats.MapEvents
         AssetType CharacterType => Location switch
         {
             // TODO: Handle the other cases
-            TextLocation.PortraitLeft => AssetType.PartyMember,
+            TextLocation.PortraitLeft => AssetType.Party,
             _ => AssetType.Npc
         };
 
         public override MapEventType EventType => MapEventType.Text;
-        public StringId ToId() => new StringId(TextSource, SubId);
+        public StringId ToId() => new(TextSource, SubId);
     }
 }

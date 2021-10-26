@@ -21,7 +21,7 @@ namespace UAlbion.Game.Gui.Controls
             _sprite = null;
         }
 
-        public override Vector2 GetSize() => new Vector2(0, 1);
+        public override Vector2 GetSize() => new(0, 1);
 
         void UpdateSprite(Vector3 position, Vector2 size, DrawLayer layer)
         {
@@ -31,14 +31,21 @@ namespace UAlbion.Game.Gui.Controls
                 _sprite?.Dispose();
 
                 var sm = Resolve<ISpriteManager>();
-                var key = new SpriteKey(commonColors.BorderTexture, layer, SpriteKeyFlags.NoTransform | SpriteKeyFlags.NoDepthTest);
+                var key = new SpriteKey(commonColors.BorderTexture, SpriteSampler.Point, layer, SpriteKeyFlags.NoTransform | SpriteKeyFlags.NoDepthTest);
                 _sprite = sm.Borrow(key, 1, this);
             }
             else if (_lastPosition == position && _lastSize == size)
                 return;
 
-            var instances = _sprite.Access();
-            instances[0] = SpriteInstanceData.TopLeft(position, size, _sprite, (int)commonColors.Palette[_color], 0);
+            bool lockWasTaken = false;
+            var instances = _sprite.Lock(ref lockWasTaken);
+            try
+            {
+                var region = commonColors.BorderTexture.Regions[(int)commonColors.Palette[_color]];
+                instances[0] = new SpriteInstanceData(position, size, region, SpriteFlags.TopLeft);
+            }
+            finally { _sprite.Unlock(lockWasTaken); }
+
             _lastPosition = position;
             _lastSize = size;
         }

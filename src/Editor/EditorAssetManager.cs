@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using UAlbion.Api;
 using UAlbion.Core;
 
 namespace UAlbion.Editor
@@ -9,9 +8,9 @@ namespace UAlbion.Editor
     {
         const int MaxUndo = 100;
         int _nextId;
-        readonly Dictionary<int, EditorAsset> _assetsById = new Dictionary<int, EditorAsset>();
-        readonly Dictionary<object, int> _idsByAsset = new Dictionary<object, int>();
-        readonly LinkedList<IEditorEvent> _undoStack = new LinkedList<IEditorEvent>();
+        readonly Dictionary<int, EditorAsset> _assetsById = new();
+        readonly Dictionary<object, int> _idsByAsset = new();
+        readonly LinkedList<IEditorEvent> _undoStack = new();
         // Cross references: IDictionary<AssetId, IList<(object, string)>> - requires loading total state.
 
         public EditorAssetManager()
@@ -62,7 +61,7 @@ namespace UAlbion.Editor
             if (asset != null)
                 return asset.Apply(e);
 
-            Raise(new LogEvent(LogEvent.Level.Error, $"No asset could be found with id {e.Id}"));
+            Error($"No asset could be found with id {e.Id}");
             return false;
         }
 

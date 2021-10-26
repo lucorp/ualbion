@@ -5,9 +5,10 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using SerdesNet;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.PixelFormats;
+using UAlbion.Api;
 using UAlbion.Api.Visual;
 using UAlbion.Config;
 using UAlbion.Core;
@@ -18,28 +19,28 @@ using UAlbion.Formats.Parsers;
 
 namespace UAlbion.Game.Veldrid.Assets
 {
-    public class PngLoader : Component, IAssetLoader<IEightBitImage>
+    public class PngLoader : Component, IAssetLoader<IReadOnlyTexture<byte>>
     {
-        static (byte[], string) Write(IImageEncoder encoder, uint[] palette, IEightBitImage existing, int frameNum)
+        static byte[] Write(IImageEncoder encoder, uint[] palette, IReadOnlyTexture<byte> existing, int frameNum)
         {
-            var frame = existing.GetSubImage(frameNum);
-            var buffer = new ReadOnlyByteImageBuffer(
+            var frame = existing.Regions[frameNum];
+            var buffer = new ReadOnlyImageBuffer<byte>(
                 frame.Width,
                 frame.Height,
                 existing.Width,
-                existing.PixelData.AsSpan(frame.PixelOffset, frame.PixelLength));
+                existing.PixelData.Slice(frame.PixelOffset, frame.PixelLength));
 
-            Image<Rgba32> image = ImageUtil.BuildImageForFrame(buffer, palette);
+            Image<Rgba32> image = ImageSharpUtil.ToImageSharp(buffer, palette);
             var bytes = FormatUtil.BytesFromStream(stream => encoder.Encode(image, stream));
-            return (bytes, null);
+            return bytes;
         }
 
-        static IEightBitImage Read(AssetId id, uint[] palette, IList<Image<Rgba32>> images)
+        static IReadOnlyTexture<byte> Read(AssetId id, uint[] palette, IList<Image<Rgba32>> images)
         {
             int totalWidth = images.Max(x => x.Width);
             int totalHeight = images.Sum(x => x.Height);
             var pixels = new byte[totalWidth * totalHeight];
-            var frames = new List<AlbionSpriteFrame>();
+            var frames = new List<Region>();
             int currentY = 0;
             var quantizeCache = new Dictionary<uint, byte>();
             for (int i = 0; i < images.Count; i++)
@@ -48,21 +49,20 @@ namespace UAlbion.Game.Veldrid.Assets
                 if (!image.TryGetSinglePixelSpan(out Span<Rgba32> rgbaSpan))
                     throw new InvalidOperationException("Could not retrieve single span from Image");
 
-                frames.Add(new AlbionSpriteFrame(0, currentY, image.Width, image.Height, totalWidth));
+                frames.Add(new Region(0, currentY, image.Width, image.Height, totalWidth, totalHeight, 0));
                 var uintSpan = MemoryMarshal.Cast<Rgba32, uint>(rgbaSpan);
-                var from = new ReadOnlyUIntImageBuffer(image.Width, image.Height, image.Width, uintSpan);
+                var from = new ReadOnlyImageBuffer<uint>(image.Width, image.Height, image.Width, uintSpan);
                 var byteSpan = pixels.AsSpan(currentY * totalWidth, totalWidth * (image.Height - 1) + image.Width);
-                var to = new ByteImageBuffer(image.Width, image.Height, totalWidth, byteSpan);
+                var to = new ImageBuffer<byte>(image.Width, image.Height, totalWidth, byteSpan);
                 BlitUtil.Blit32To8(from, to, palette, quantizeCache);
 
                 currentY += image.Height;
             }
 
-            bool uniform = frames.All(x => x.Width == frames[0].Width && x.Height == frames[0].Height);
-            return new AlbionSprite(id, totalWidth, totalHeight, uniform, pixels, frames);
+            return new SimpleTexture<byte>(id, id.ToString(), totalWidth, totalHeight, pixels, frames);
         }
 
-        public IEightBitImage Serdes(IEightBitImage existing, AssetInfo info, AssetMapping mapping, ISerializer s)
+        public IReadOnlyTexture<byte> Serdes(IReadOnlyTexture<byte> existing, AssetInfo info, AssetMapping mapping, ISerializer s, IJsonUtil jsonUtil)
         {
             if (info == null) throw new ArgumentNullException(nameof(info));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -79,7 +79,7 @@ namespace UAlbion.Game.Veldrid.Assets
                 if (existing == null)
                     throw new ArgumentNullException(nameof(existing));
                 var encoder = new PngEncoder();
-                PackedChunks.Pack(s, existing.SubImageCount, frameNum => Write(encoder, unambiguousPalette, existing, frameNum));
+                PackedChunks.Pack(s, existing.Regions.Count, frameNum => Write(encoder, unambiguousPalette, existing, frameNum));
                 return existing;
             }
 
@@ -100,7 +100,7 @@ namespace UAlbion.Game.Veldrid.Assets
             finally { foreach (var image in images) image.Dispose(); }
         }
 
-        public object Serdes(object existing, AssetInfo info, AssetMapping mapping, ISerializer s)
-            => Serdes((IEightBitImage)existing, info, mapping, s);
+        public object Serdes(object existing, AssetInfo info, AssetMapping mapping, ISerializer s, IJsonUtil jsonUtil)
+            => Serdes((IReadOnlyTexture<byte>)existing, info, mapping, s, jsonUtil);
     }
 }

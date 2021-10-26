@@ -36,7 +36,6 @@ namespace UAlbion.Core
                     logExchange.EnqueueEvent(@event);
                 else
                     Console.WriteLine("Unknown event \"{0}\"", command);
-
             } while (!_done);
         }
     }

@@ -22,7 +22,7 @@ namespace UAlbion.Game.Entities.Map2D
 
         public MapId MapId { get; }
         public MapType MapType => _logicalMap.UseSmallSprites ? MapType.TwoDOutdoors : MapType.TwoD;
-        public Vector2 LogicalSize => new Vector2(_logicalMap.Width, _logicalMap.Height);
+        public Vector2 LogicalSize => new(_logicalMap.Width, _logicalMap.Height);
         public Vector3 TileSize { get; private set; }
         public IMapData MapData => _mapData;
         public float BaseCameraHeight => 0.0f;
@@ -46,17 +46,18 @@ namespace UAlbion.Game.Entities.Map2D
 
         protected override void Subscribed()
         {
-            Raise(new SetClearColourEvent(0,0,0));
+            Raise(new SetClearColourEvent(0,0,0, 1.0f));
             if (_logicalMap != null)
                 return;
 
             var assetManager = Resolve<IAssetManager>();
             var state = Resolve<IGameState>();
+            var gameFactory = Resolve<IGameFactory>();
             _logicalMap = new LogicalMap2D(assetManager, _mapData, state.TemporaryMapChanges, state.PermanentMapChanges);
             var tileset = assetManager.LoadTexture(_logicalMap.TilesetId);
             AttachChild(new ScriptManager());
             AttachChild(new Collider2D(_logicalMap, !_logicalMap.UseSmallSprites));
-            var renderable = AttachChild(new MapRenderable2D(_logicalMap, tileset));
+            var renderable = AttachChild(new MapRenderable2D(_logicalMap, tileset, gameFactory));
             var selector = AttachChild(new SelectionHandler2D(_logicalMap, renderable));
             selector.HighlightIndexChanged += (sender, x) => renderable.SetHighlightIndex(x);
             TileSize = new Vector3(renderable.TileSize, 1.0f);
@@ -80,7 +81,7 @@ namespace UAlbion.Game.Entities.Map2D
 
         void RebuildPartyMembers()
         {
-            var existing = Children.Where(x => x is SmallPlayer || x is LargePlayer).ToList();
+            var existing = Children.Where(x => x is SmallPlayer or LargePlayer).ToList();
             foreach (var player in existing)
                 player.Remove();
 
@@ -106,13 +107,13 @@ namespace UAlbion.Game.Entities.Map2D
         {
             var zones = _logicalMap.GetZonesOfType(type);
             if (!log)
-                Raise(new SetLogLevelEvent(LogEvent.Level.Warning));
+                Raise(new SetLogLevelEvent(LogLevel.Warning));
 
             foreach (var zone in zones)
                 Raise(new TriggerChainEvent(zone.ChainSource, zone.Chain, zone.Node, new EventSource(_mapData.Id, _mapData.Id.ToMapText(), type, zone.X, zone.Y)));
 
             if (!log)
-                Raise(new SetLogLevelEvent(LogEvent.Level.Info));
+                Raise(new SetLogLevelEvent(LogLevel.Info));
         }
 
         void OnNpcEnteredTile(NpcEnteredTileEvent e)

@@ -29,10 +29,7 @@ namespace UAlbion.Game.Entities
                     return;
 
                 var delta = value - _position;
-                var instances = _sprite.Access();
-                for (int i = 0; i < instances.Length; i++)
-                    instances[i].OffsetBy(delta);
-
+                _sprite.OffsetAll(delta);
                 _position = value;
             }
         }

@@ -8,11 +8,12 @@ namespace UAlbion.Game.Scenes
 {
     public interface IDungeonScene : IScene { }
     [Scene(SceneId.World3D)]
-    public class DungeonScene : Scene, IDungeonScene
+    public class DungeonScene : Container, IDungeonScene
     {
-        public DungeonScene() : base(nameof(SceneId.World3D), new PerspectiveCamera(true))
+        public DungeonScene() : base(nameof(SceneId.World3D))
         {
-            AttachChild(new CameraMotion3D((PerspectiveCamera)Camera));
+            var camera = AttachChild(new PerspectiveCamera(true));
+            AttachChild(new CameraMotion3D(camera));
         }
 
         protected override void Subscribed()

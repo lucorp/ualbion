@@ -1,15 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 
 namespace UAlbion.Api
 {
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1716:Identifiers should not match keywords", Justification = "Don't care about VB")]
+    [SuppressMessage("Naming", "CA1716:Identifiers should not match keywords", Justification = "Don't care about VB")]
     public abstract class Event : IEvent // Contains no fields, only helper methods for reflection-based parsing and serialization.
     {
-        static readonly object SyncRoot = new object();
+        static readonly object SyncRoot = new();
         static readonly IDictionary<Type, EventMetadata> Serializers = new Dictionary<Type, EventMetadata>();
         static readonly IDictionary<string, EventMetadata> Events = new Dictionary<string, EventMetadata>();
 

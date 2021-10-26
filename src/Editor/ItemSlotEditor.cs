@@ -19,15 +19,14 @@ namespace UAlbion.Editor
         static ItemSlotEditor()
         {
             var itemIdInfo =
-                Enum.GetValues(typeof(ItemId))
-                    .OfType<ItemId>()
-                    .Select(x => (x, x.ToString()))
-                    .OrderBy(x => x.Item2)
-                    .Select((x,i) => (x.x, i, x.Item2))
-                    .ToArray();
+                AssetMapping.Global.EnumerateAssetsOfType(AssetType.Item)
+                .Select(x => ((ItemId)x, x.ToString()))
+                .OrderBy(x => x.Item2)
+                .Select((x,i) => (x.Item1, i, x.Item2))
+                .ToArray();
 
             _itemNames = new[] { "Empty" }.Concat(itemIdInfo.Select(x => x.Item3)).ToArray();
-            _itemNameIndexLookup = itemIdInfo.ToDictionary(x => x.x, x => x.i + 1);
+            _itemNameIndexLookup = itemIdInfo.ToDictionary(x => x.Item1, x => x.i + 1);
         }
 
         static int IndexForItemId(ItemId? x) => x == null ? 0 : _itemNameIndexLookup[x.Value];
@@ -50,8 +49,8 @@ namespace UAlbion.Editor
                 var newItem = itemId.Type switch
                 {
                     AssetType.None => (IContents)null,
-                    AssetType.Gold => new Gold(),
-                    AssetType.Rations => new Rations(),
+                    AssetType.Gold => Gold.Instance,
+                    AssetType.Rations => Rations.Instance,
                     _ => Resolve<IRawAssetManager>().LoadItem(itemId)
                 };
                 Raise(new EditorSetPropertyEvent(assetId, nameof(_slot.Item), _slot.Item, newItem));

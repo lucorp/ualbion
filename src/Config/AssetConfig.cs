@@ -2,50 +2,54 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 using UAlbion.Api;
 
 namespace UAlbion.Config
 {
     public class AssetConfig : IAssetConfig
     {
-        public IDictionary<string, AssetTypeInfo> IdTypes { get; } = new Dictionary<string, AssetTypeInfo>();
-        public IDictionary<string, string> StringMappings { get; } = new Dictionary<string, string>();
-        public IDictionary<string, string> Loaders { get; } = new Dictionary<string, string>();
-        public IDictionary<string, string> Containers { get; } = new Dictionary<string, string>();
-        public IDictionary<string, string> PostProcessors { get; } = new Dictionary<string, string>();
-        public IDictionary<string, LanguageConfig> Languages { get; } = new Dictionary<string, LanguageConfig>();
-        public IDictionary<string, AssetFileInfo> Files { get; } = new Dictionary<string, AssetFileInfo>();
+        [JsonInclude] public Dictionary<string, AssetTypeInfo> IdTypes { get; private set; } = new();
+        [JsonInclude] public Dictionary<string, string> StringMappings { get; private set; } = new();
+        [JsonInclude] public Dictionary<string, string> Loaders { get; private set; } = new();
+        [JsonInclude] public Dictionary<string, string> Containers { get; private set; } = new();
+        [JsonInclude] public Dictionary<string, string> PostProcessors { get; private set; } = new();
+        [JsonInclude] public Dictionary<string, LanguageConfig> Languages { get; private set; } = new();
+        [JsonInclude] public Dictionary<string, AssetFileInfo> Files { get; private set; } = new();
 
         Dictionary<AssetId, AssetInfo[]> _assetLookup;
+        AssetMapping _mapping;
 
-        public static AssetConfig Parse(string configText)
+        public static AssetConfig Parse(byte[] configText, AssetMapping mapping, IJsonUtil jsonUtil)
         {
-            var config = JsonConvert.DeserializeObject<AssetConfig>(configText);
+            if (jsonUtil == null) throw new ArgumentNullException(nameof(jsonUtil));
+            var config = jsonUtil.Deserialize<AssetConfig>(configText);
             if (config == null)
                 return null;
 
-            config?.PostLoad();
-            return (AssetConfig)config;
+            config.PostLoad(mapping);
+            return config;
         }
 
-        public static AssetConfig Load(string configPath, IFileSystem disk)
+        public static AssetConfig Load(string configPath,  AssetMapping mapping, IFileSystem disk, IJsonUtil jsonUtil)
         {
             if (disk == null) throw new ArgumentNullException(nameof(disk));
+            if (jsonUtil == null) throw new ArgumentNullException(nameof(jsonUtil));
             if (!disk.FileExists(configPath))
                 throw new FileNotFoundException($"Could not open asset config from {configPath}");
 
-            var configText = disk.ReadAllText(configPath);
-            var config = Parse(configText);
+            var configText = disk.ReadAllBytes(configPath);
+            var config = Parse(configText, mapping, jsonUtil);
             if(config == null)
                 throw new FileLoadException($"Could not load asset config from \"{configPath}\"");
             return config;
         }
 
-        public void Save(string configPath, IFileSystem disk)
+        public void Save(string configPath, IFileSystem disk, IJsonUtil jsonUtil)
         {
             if (disk == null) throw new ArgumentNullException(nameof(disk));
-            var json = JsonConvert.SerializeObject(this, ConfigUtil.JsonSerializerSettings);
+            if (jsonUtil == null) throw new ArgumentNullException(nameof(jsonUtil));
+            var json = jsonUtil.Serialize(this);
             disk.WriteAllText(configPath, json);
         }
 
@@ -54,8 +58,9 @@ namespace UAlbion.Config
                 ? info 
                 : Array.Empty<AssetInfo>();
 
-        void PostLoad()
+        void PostLoad(AssetMapping mapping)
         {
+            _mapping = mapping ?? throw new ArgumentNullException(nameof(mapping));
             foreach (var kvp in IdTypes)
                 kvp.Value.Alias = kvp.Key;
 
@@ -64,7 +69,8 @@ namespace UAlbion.Config
 
             foreach (var kvp in Files)
             {
-                int index = kvp.Key.IndexOf('#');
+                kvp.Value.Config = this;
+                int index = kvp.Key.IndexOf('#', StringComparison.InvariantCulture);
                 kvp.Value.Filename = index == -1 ? kvp.Key : kvp.Key.Substring(0, index);
                 if (index != -1)
                     kvp.Value.Sha256Hash = kvp.Key.Substring(index + 1);
@@ -83,16 +89,16 @@ namespace UAlbion.Config
         }
 
         public void PopulateAssetIds(
-            AssetMapping mapping,
+            IJsonUtil jsonUtil,
             Func<AssetFileInfo, IList<(int, int)>> getSubItemCountForFile,
-            Func<string, string> readAllTextFunc)
+            Func<string, byte[]> readAllBytesFunc)
         {
-            if (mapping == null) throw new ArgumentNullException(nameof(mapping));
+            if (jsonUtil == null) throw new ArgumentNullException(nameof(jsonUtil));
 
             var temp = new Dictionary<AssetId, List<AssetInfo>>();
             foreach (var file in Files)
             {
-                file.Value.PopulateAssetIds(x => ResolveId(mapping, x), getSubItemCountForFile, readAllTextFunc);
+                file.Value.PopulateAssetIds(jsonUtil, getSubItemCountForFile, readAllBytesFunc);
 
                 foreach (var asset in file.Value.Map.Values)
                 {
@@ -120,7 +126,7 @@ namespace UAlbion.Config
                 if (!int.TryParse(offsetStr, out var offset))
                     offset = 0;
 
-                var target = ResolveId(mapping, targetStr);
+                var target = ResolveId(targetStr);
                 var (min, max) = ParseRange(range);
                 mapping.RegisterStringRedirect(enumType, target, min, max, offset);
             }
@@ -131,7 +137,7 @@ namespace UAlbion.Config
             if (s == "*")
                 return (0, int.MaxValue);
 
-            int index = s.IndexOf('-');
+            int index = s.IndexOf('-', StringComparison.InvariantCulture);
             if (index == -1)
             {
                 if(!int.TryParse(s, out var asInt))
@@ -153,7 +159,7 @@ namespace UAlbion.Config
 
         static (string, string) SplitId(string id, char separator)
         {
-            int index = id.IndexOf(separator);
+            int index = id.IndexOf(separator, StringComparison.InvariantCulture);
             if (index == -1)
                 return (id, null);
 
@@ -174,13 +180,13 @@ namespace UAlbion.Config
             return enumType;
         }
 
-        AssetId ResolveId(AssetMapping mapping, string id)
+        internal AssetId ResolveId(string id)
         {
             var (type, val) = SplitId(id, '.');
             if (val == null)
                 throw new FormatException("Asset IDs should consist of an alias type and value, separated by a '.' character");
             var enumType = ResolveIdType(type);
-            return mapping.EnumToId(enumType, val);
+            return _mapping.EnumToId(enumType, val);
         }
     }
 }

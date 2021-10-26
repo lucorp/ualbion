@@ -11,10 +11,10 @@ namespace UAlbion.Formats.Parsers
     {
         const int WordLength = 21;
 
-        public object Serdes(object existing, AssetInfo info, AssetMapping mapping, ISerializer s)
-            => Serdes((ListStringCollection)existing, info, mapping, s);
+        public object Serdes(object existing, AssetInfo info, AssetMapping mapping, ISerializer s, IJsonUtil jsonUtil)
+            => Serdes((ListStringCollection)existing, info, mapping, s, jsonUtil);
 
-        public ListStringCollection Serdes(ListStringCollection existing, AssetInfo info, AssetMapping mapping, ISerializer s)
+        public ListStringCollection Serdes(ListStringCollection existing, AssetInfo info, AssetMapping mapping, ISerializer s, IJsonUtil jsonUtil)
         {
             if (s == null) throw new ArgumentNullException(nameof(s));
             if (info == null) throw new ArgumentNullException(nameof(info));
@@ -29,12 +29,12 @@ namespace UAlbion.Formats.Parsers
             }
             else
             {
-                if(existing == null)
+                if (existing == null)
                     throw new ArgumentNullException(nameof(existing));
 
                 foreach (var x in existing)
                 {
-                    if (x != null && x.Length > WordLength)
+                    if (x is { Length: > WordLength })
                         throw new ArgumentOutOfRangeException(nameof(existing), $"Tried to write a word ({x}) of length {x.Length} to a word list, but the maximum length is {WordLength}");
 
                     s.FixedLengthString(null, x, WordLength);

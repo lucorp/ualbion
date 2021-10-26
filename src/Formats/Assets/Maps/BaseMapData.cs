@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 using SerdesNet;
 using UAlbion.Config;
 using UAlbion.Formats.MapEvents;
@@ -10,21 +10,21 @@ namespace UAlbion.Formats.Assets.Maps
 {
     public abstract class BaseMapData : IMapData
     {
-        public MapId Id { get; protected set; }
+        [JsonInclude] public MapId Id { get; protected set; }
         public abstract MapType MapType { get; }
-        public byte Width { get; protected set; }
-        public byte Height { get; protected set; }
-        public SongId SongId { get; protected set; }
-        public PaletteId PaletteId { get; protected set; }
-        public SpriteId CombatBackgroundId { get; protected set; }
-        public byte OriginalNpcCount { get; protected set; }
-        public MapNpc[] Npcs { get; protected set; }
+        [JsonInclude] public byte Width { get; protected set; }
+        [JsonInclude] public byte Height { get; protected set; }
+        [JsonInclude] public SongId SongId { get; set; }
+        [JsonInclude] public PaletteId PaletteId { get; set; }
+        [JsonInclude] public SpriteId CombatBackgroundId { get; set; }
+        [JsonInclude] public byte OriginalNpcCount { get; set; }
+        [JsonInclude] public MapNpc[] Npcs { get; protected set; }
 
-        public IList<MapEventZone> Zones { get; private set; } = new List<MapEventZone>();
+        [JsonInclude] public IList<MapEventZone> Zones { get; private set; } = new List<MapEventZone>();
         [JsonIgnore] public IDictionary<int, MapEventZone> ZoneLookup { get; } = new Dictionary<int, MapEventZone>();
         [JsonIgnore] public IDictionary<TriggerTypes, MapEventZone[]> ZoneTypeLookup { get; } = new Dictionary<TriggerTypes, MapEventZone[]>();
         [JsonIgnore] public IList<EventNode> Events { get; private set; } = new List<EventNode>();
-        public IList<ushort> Chains { get; } = new List<ushort>();
+        [JsonInclude] public IList<ushort> Chains { get; private set; } = new List<ushort>();
         public string[] EventStrings // Used for JSON
         {
             get => Events?.Select(x => x.ToString()).ToArray();
@@ -42,7 +42,7 @@ namespace UAlbion.Formats.Assets.Maps
         protected void SerdesZones(ISerializer s)
         {
             if (s == null) throw new ArgumentNullException(nameof(s));
-            int zoneCount = s.UInt16("ZoneCount", (ushort)Zones.Count(x => x.Global));
+            int zoneCount = s.UInt16("GlobalZoneCount", (ushort)Zones.Count(x => x.Global));
             // TODO: This is assuming that global events will always come first in the in-memory list, may need
             // to add some code to preserve this invariant later on when handling editing / patching functionality.
             s.List(nameof(Zones), Zones, (byte)255, zoneCount, (i, x, y2, serializer) => MapEventZone.Serdes(x, serializer, y2));
@@ -51,6 +51,9 @@ namespace UAlbion.Formats.Assets.Maps
             int zoneOffset = zoneCount;
             for (byte y = 0; y < Height; y++)
             {
+                if (s.IsCommenting())
+                    s.Comment($"Line {y}");
+
                 zoneCount = s.UInt16("RowZones", (ushort)Zones.Count(x => x.Y == y && !x.Global));
                 s.List(nameof(Zones), Zones, y, zoneCount, zoneOffset,
                     (i, x, y2, s2) => MapEventZone.Serdes(x, s2, y2));
@@ -63,11 +66,11 @@ namespace UAlbion.Formats.Assets.Maps
             if (s == null) throw new ArgumentNullException(nameof(s));
             ushort eventCount = s.UInt16("EventCount", (ushort)Events.Count);
 
-            if(Events != null) // Ensure ids match up
+            if (Events != null) // Ensure ids match up
                 for (ushort i = 0; i < Events.Count; i++)
                     Events[i].Id = i;
 
-            s.List(nameof(Events), Events, eventCount, (i, x, serializer) 
+            s.List(nameof(Events), Events, eventCount, (i, x, serializer)
                 => EventNode.Serdes((ushort)i, x, serializer, Id, Id.ToMapText(), mapping));
 
             foreach (var node in Events)
@@ -131,7 +134,7 @@ namespace UAlbion.Formats.Assets.Maps
                 if (e.Next != null)
                     AddEventReference(e.Next.Id, e);
 
-                if (e is BranchNode branch && branch.NextIfFalse != null)
+                if (e is BranchNode { NextIfFalse: { } } branch)
                     AddEventReference(branch.NextIfFalse.Id, e);
             }
 #endif
@@ -154,7 +157,7 @@ namespace UAlbion.Formats.Assets.Maps
                 s.Begin("NpcWaypoints" + npc.Index);
                 if (npc.Id.Type != AssetType.None)
                     npc.LoadWaypoints(s);
-                else 
+                else
                     npc.Waypoints = new NpcWaypoint[1];
                 s.End();
             }
@@ -174,7 +177,7 @@ namespace UAlbion.Formats.Assets.Maps
             return mapType switch
             {
                 // Indoor/outdoor maps aren't distinguished on disk - it has to be inferred from the tileset
-                MapType.TwoD => MapData2D.Serdes(info, (MapData2D)existing, mapping, s), 
+                MapType.TwoD => MapData2D.Serdes(info, (MapData2D)existing, mapping, s),
                 MapType.ThreeD => MapData3D.Serdes(info, (MapData3D)existing, mapping, s),
                 _ => throw new NotImplementedException($"Unrecognised map type {mapType} found.")
             };

@@ -20,9 +20,10 @@ namespace UAlbion.Base.Tests
             AssetMapping.GlobalIsThreadLocal = true;
             var mapping = AssetMapping.Global;
             var disk = new MockFileSystem(true);
+            var jsonUtil = new FormatJsonUtil();
             var baseDir = ConfigUtil.FindBasePath(disk);
             var assetConfigPath = Path.Combine(baseDir, "mods", "Base", "assets.json");
-            var assetConfig = AssetConfig.Load(assetConfigPath, disk);
+            var assetConfig = AssetConfig.Load(assetConfigPath, mapping, disk, jsonUtil);
 
             foreach (var assetType in assetConfig.IdTypes.Values)
             {
@@ -357,10 +358,10 @@ execute 1 1");
         [Fact]
         public void Inv()
         {
-            Test(@"inv:chest Chest.Unknown1 MapText.Jirinaar Item.Pistol 1 2 3
-inv:chest Chest.Unknown1 MapText.Jirinaar None 0 255 255
-inv:door Door.HerrasDoor MapText.Jirinaar Item.Pistol 1 2 3
-inv:door Door.HerrasDoor MapText.Jirinaar None 0 255 255");
+            Test(@"open_chest Chest.Unknown1 MapText.Jirinaar Item.Pistol 1 2 3
+open_chest Chest.Unknown1 MapText.Jirinaar None 0 255 255
+open_door Door.HerrasDoor MapText.Jirinaar Item.Pistol 1 2 3
+open_door Door.HerrasDoor MapText.Jirinaar None 0 255 255");
         }
 
         [Fact]
@@ -417,7 +418,7 @@ query_event_used IsTrue 0 0
 query_gold GreaterThan 0 0
 query_gold GreaterThanOrEqual 0 1
 query_gold GreaterThanOrEqual 1 0
-query_gold NotEqual 0 1
+query_gold LessThanOrEqual 0 1
 query_has_item Equals 1 Item.Pistol
 query_has_item GreaterThan 0 Item.Pistol
 query_has_item GreaterThanOrEqual 1 Item.Pistol
@@ -432,17 +433,17 @@ query_npc_active IsTrue 0 1
 query_npc_active IsTrue 1 0
 query_previous_action_result IsTrue 0 0
 query_random_chance IsTrue 1 1
-query_random_chance NotEqual 0 1
+query_random_chance LessThanOrEqual 0 1
+query_random_chance LessThanOrEqual 1 1
 query_random_chance NotEqual 1 1
-query_random_chance OpUnk2 1 1
 query_random_chance OpUnk6 0 1
 query_script_debug_mode IsTrue 0 0
 query_switch IsTrue 0 Switch.ExpelledFromSouthWind
 query_ticker Equals 1 Ticker.Ticker100
 query_ticker GreaterThan 1 Ticker.Ticker100
 query_ticker GreaterThanOrEqual 1 Ticker.Ticker100
+query_ticker LessThanOrEqual 1 Ticker.Ticker100
 query_ticker NotEqual 1 Ticker.Ticker100
-query_ticker OpUnk2 1 Ticker.Ticker100
 query_unk1 Equals 1 1
 query_unk1 Equals 1 1
 query_unk1 GreaterThan 1 1
@@ -451,13 +452,13 @@ query_unk1 GreaterThanOrEqual 1 1
 query_unk1 GreaterThanOrEqual 1 1
 query_unk1 IsTrue 0 0
 query_unk1 IsTrue 1 0
+query_unk1 LessThanOrEqual 1 1
+query_unk1 LessThanOrEqual 1 1
 query_unk1 NotEqual 1 1
-query_unk1 NotEqual 1 1
-query_unk1 OpUnk2 1 1
 query_unk1 OpUnk6 1 1
 query_unk1e GreaterThan 0 1
 query_unk1e GreaterThanOrEqual 0 1
-query_unk1e NotEqual 0 1
+query_unk1e LessThanOrEqual 0 1
 query_unk1e OpUnk6 0 1
 query_unkc Equals 0 0
 query_unkc Equals 0 1

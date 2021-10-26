@@ -6,6 +6,7 @@ using UAlbion.Api;
 using UAlbion.Api.Visual;
 using UAlbion.Config;
 using UAlbion.Core;
+using UAlbion.Formats;
 using UAlbion.Formats.Assets;
 using UAlbion.Formats.Assets.Maps;
 using UAlbion.Formats.MapEvents;
@@ -22,6 +23,7 @@ namespace UAlbion.Base.Tests
         const string UnpackedAssetMod = "Unpacked";
         const string RepackedAssetMod = "Repacked";
 
+        static readonly IJsonUtil JsonUtil = new FormatJsonUtil();
         readonly string _baseDir;
         readonly IFileSystem _disk;
         readonly IModApplier _baseApplier;
@@ -41,16 +43,15 @@ namespace UAlbion.Base.Tests
 
         IModApplier BuildApplier(string mod)
         {
-            var generalConfig = AssetSystem.LoadGeneralConfig(_baseDir, _disk);
+            var generalConfig = AssetSystem.LoadGeneralConfig(_baseDir, _disk, JsonUtil);
             var coreConfig = new CoreConfig();
-            var gameConfig = AssetSystem.LoadGameConfig(_baseDir, _disk);
+            var gameConfig = AssetSystem.LoadGameConfig(_baseDir, _disk, JsonUtil);
             var settings = new GeneralSettings
             {
                 ActiveMods = { mod },
                 Language = Language.English
             };
-            var factory = new MockFactory();
-            var exchange = AssetSystem.Setup(_disk, factory, generalConfig, settings, coreConfig, gameConfig);
+            var exchange = AssetSystem.Setup(_disk, JsonUtil, generalConfig, settings, coreConfig, gameConfig);
             return exchange.Resolve<IModApplier>();
         }
 
@@ -65,13 +66,14 @@ namespace UAlbion.Base.Tests
 
             var baseAsset = (T)_baseApplier.LoadAsset(id);
             var (baseBytes, baseNotes) = Asset.Save(baseAsset, serdes);
+            var baseJson = Asset.SaveJson(baseAsset, JsonUtil);
 
             var idStrings = allIds.Select(x => $"{x.Type}.{x.Id}").ToArray();
             var assetTypes = allIds.Select(x => x.Type).Distinct().ToHashSet();
 
             ConvertAssets.Convert(
                 _disk,
-                new MockFactory(),
+                JsonUtil,
                 BaseAssetMod,
                 UnpackedAssetMod,
                 idStrings,
@@ -81,15 +83,23 @@ namespace UAlbion.Base.Tests
             var unpackedAsset = (T)BuildApplier(UnpackedAssetMod).LoadAsset(id);
             Assert.NotNull(unpackedAsset);
             var (unpackedBytes, unpackedNotes) = Asset.Save(unpackedAsset, serdes);
+            var unpackedJson = Asset.SaveJson(unpackedAsset, JsonUtil);
+
             Asset.Compare(resultsDir,
                 id.Type.ToString(),
                 baseBytes,
                 unpackedBytes,
-                new[] { (".saveBase.txt", baseNotes), (".saveUnpacked.txt", unpackedNotes) });
+                new[]
+                {
+                    (".saveBase.txt", baseNotes),
+                    (".saveUnpacked.txt", unpackedNotes),
+                    (".Base.json", baseJson),
+                    (".Unpacked.json", unpackedJson)
+                });
 
             ConvertAssets.Convert(
                 _disk,
-                new MockFactory(),
+                JsonUtil,
                 UnpackedAssetMod,
                 RepackedAssetMod,
                 idStrings,
@@ -98,18 +108,40 @@ namespace UAlbion.Base.Tests
 
             var repackedAsset = (T)BuildApplier(RepackedAssetMod).LoadAsset(id);
             var (repackedBytes, repackedNotes) = Asset.Save(repackedAsset, serdes);
+            var repackedJson = Asset.SaveJson(repackedAsset, JsonUtil);
+
             Asset.Compare(resultsDir,
                 id.Type.ToString(),
                 baseBytes,
                 repackedBytes,
-                new[] { (".saveBase.txt", baseNotes), (".saveRepacked.txt", repackedNotes) });
+                new[]
+                {
+                    (".saveBase.txt", baseNotes),
+                    (".saveRepacked.txt", repackedNotes),
+                    (".Base.json", baseJson),
+                    (".Repacked.json", unpackedJson)
+                });
         }
 
         [Fact]
         public void ItemTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Item.Knife) };
-            Test<ItemData>(info.AssetId, null, (x, s) => Loaders.ItemDataLoader.Serdes(x, info, AssetMapping.Global, s));
+            var spell = new SpellData(Spell.ThornSnare, SpellClass.DjiKas, 0)
+            {
+                Cost = 1,
+                Environments = SpellEnvironments.Combat,
+                LevelRequirement = 2,
+                Targets = SpellTargets.OneMonster,
+            };
+
+            var spellManager = new MockSpellManager().Add(spell);
+            ItemDataLoader itemDataLoader = new();
+            new EventExchange()
+                .Attach(spellManager)
+                .Attach(itemDataLoader);
+
+            Test<ItemData>(info.AssetId, null, (x, s) => itemDataLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -118,21 +150,21 @@ namespace UAlbion.Base.Tests
             var info = new AssetInfo { AssetId = AssetId.From(Special.ItemNames) };
             Test<MultiLanguageStringDictionary>(info.AssetId,
                 AssetMapping.Global.EnumerateAssetsOfType(AssetType.ItemName).ToArray(),
-                (x, s) => Loaders.ItemNameLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.ItemNameLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void AutomapTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Automap.Jirinaar) };
-            Test<Formats.Assets.Automap>(info.AssetId, null, (x, s) => Loaders.AutomapLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<Formats.Assets.Automap>(info.AssetId, null, (x, s) => Loaders.AutomapLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void BlockListTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(BlockList.Toronto) };
-            Test<Formats.Assets.BlockList>(info.AssetId, null, (x, s) => Loaders.BlockListLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<Formats.Assets.BlockList>(info.AssetId, null, (x, s) => Loaders.BlockListLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -142,7 +174,7 @@ namespace UAlbion.Base.Tests
             Test<Inventory>(
                 info.AssetId,
                  AssetId.EnumerateAll(AssetType.Item).ToArray(),
-                (x, s) => Loaders.ChestLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.ChestLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -150,28 +182,28 @@ namespace UAlbion.Base.Tests
         {
             var info = new AssetInfo { AssetId = AssetId.From(Palette.Common) };
             info.Set(AssetProperty.IsCommon, true);
-            Test<AlbionPalette>(info.AssetId, null, (x, s) => Loaders.PaletteLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<AlbionPalette>(info.AssetId, null, (x, s) => Loaders.PaletteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void EventSetTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(EventSet.Frill) };
-            Test<Formats.Assets.EventSet>(info.AssetId, null, (x, s) => Loaders.EventSetLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<Formats.Assets.EventSet>(info.AssetId, null, (x, s) => Loaders.EventSetLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void EventTextTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(EventText.Frill) };
-            Test<ListStringCollection>(info.AssetId, null, (x, s) => Loaders.AlbionStringTableLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<ListStringCollection>(info.AssetId, null, (x, s) => Loaders.AlbionStringTableLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void LabyrinthTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Labyrinth.Jirinaar) };
-            Test<Formats.Assets.Labyrinth.LabyrinthData>(info.AssetId, null, (x, s) => Loaders.LabyrinthDataLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<Formats.Assets.Labyrinth.LabyrinthData>(info.AssetId, null, (x, s) => Loaders.LabyrinthDataLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -202,7 +234,7 @@ namespace UAlbion.Base.Tests
         public void MapTextTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(MapText.TorontoBegin) };
-            Test<ListStringCollection>(info.AssetId, null, (x, s) => Loaders.AlbionStringTableLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<ListStringCollection>(info.AssetId, null, (x, s) => Loaders.AlbionStringTableLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -212,7 +244,7 @@ namespace UAlbion.Base.Tests
             Test<Inventory>(
                 info.AssetId,
                  AssetId.EnumerateAll(AssetType.Item).ToArray(),
-                (x, s) => Loaders.MerchantLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.MerchantLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -222,55 +254,77 @@ namespace UAlbion.Base.Tests
             Test<Inventory>(
                 info.AssetId,
                  AssetId.EnumerateAll(AssetType.Item).ToArray(),
-                (x, s) => Loaders.MerchantLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.MerchantLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void MonsterGroupTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(MonsterGroup.TwoSkrinn1OneKrondir1) };
-            Test<Formats.Assets.MonsterGroup>(info.AssetId, null, (x, s) => Loaders.MonsterGroupLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<Formats.Assets.MonsterGroup>(info.AssetId, null, (x, s) => Loaders.MonsterGroupLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
+        }
+
+        static CharacterSheetLoader BuildCharacterLoader()
+        {
+            var spell = new SpellData(Spell.ThornSnare, SpellClass.DjiKas, 0)
+            {
+                Cost = 1,
+                Environments = SpellEnvironments.Combat,
+                LevelRequirement = 2,
+                Targets = SpellTargets.OneMonster,
+            };
+
+            var spellManager = new MockSpellManager().Add(spell);
+            CharacterSheetLoader characterSheetLoader = new();
+            new EventExchange()
+                .Attach(spellManager)
+                .Attach(characterSheetLoader);
+
+            return characterSheetLoader;
         }
 
         [Fact]
         public void MonsterTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Monster.Krondir1) };
+            var loader = BuildCharacterLoader();
             Test<CharacterSheet>(
                 info.AssetId,
                 AssetId.EnumerateAll(AssetType.Item).ToArray(),
-                (x, s) => Loaders.CharacterSheetLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => loader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void NpcTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Npc.Christine) };
-            Test<CharacterSheet>(info.AssetId, null, (x, s) => Loaders.CharacterSheetLoader.Serdes(x, info, AssetMapping.Global, s));
+            var loader = BuildCharacterLoader();
+            Test<CharacterSheet>(info.AssetId, null, (x, s) => loader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void PaletteTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Palette.Toronto2D) };
-            Test<AlbionPalette>(info.AssetId, new[] { AssetId.From(Palette.Common) }, (x, s) => Loaders.PaletteLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<AlbionPalette>(info.AssetId, new[] { AssetId.From(Palette.Common) }, (x, s) => Loaders.PaletteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void PartyMemberTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(PartyMember.Tom) };
+            var loader = BuildCharacterLoader();
             Test<CharacterSheet>(
                 info.AssetId,
                 AssetId.EnumerateAll(AssetType.Item).ToArray(),
-                (x, s) => Loaders.CharacterSheetLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => loader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void SampleTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Sample.IllTemperedLlama) };
-            Test<AlbionSample>(info.AssetId, null, (x, s) => Loaders.SampleLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<AlbionSample>(info.AssetId, null, (x, s) => Loaders.SampleLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         /* They're text anyway so not too bothered - at the moment they don't round trip due to using friendly asset id names
@@ -279,35 +333,35 @@ namespace UAlbion.Base.Tests
         public void ScriptTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Script.TomMeetsChristine) };
-            Test<IList<IEvent>>(info.AssetId, null, (x, s) => Loaders.ScriptLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<IList<IEvent>>(info.AssetId, null, (x, s) => Loaders.ScriptLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         } //*/
 
         [Fact]
         public void SongTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Song.Toronto) };
-            Test<byte[]>(info.AssetId, null, (x, s) => Loaders.SongLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<byte[]>(info.AssetId, null, (x, s) => Loaders.SongLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void SpellTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Spell.FrostAvalanche) };
-            Test<SpellData>(info.AssetId, null, (x, s) => Loaders.SpellLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<SpellData>(info.AssetId, null, (x, s) => Loaders.SpellLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void TilesetTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Tileset.Outdoors) };
-            Test<TilesetData>(info.AssetId, null, (x, s) => Loaders.TilesetLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<TilesetData>(info.AssetId, null, (x, s) => Loaders.TilesetLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void WaveLibTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(WaveLibrary.TorontoAmbient) };
-            Test<WaveLib>(info.AssetId, null, (x, s) => Loaders.WaveLibLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<WaveLib>(info.AssetId, null, (x, s) => Loaders.WaveLibLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -317,7 +371,7 @@ namespace UAlbion.Base.Tests
             Test<ListStringCollection>(
                 info.AssetId,
                 AssetMapping.Global.EnumerateAssetsOfType(AssetType.Word).ToArray(),
-                (x, s) => Loaders.WordListLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.WordListLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
         //*
         [Fact]
@@ -325,9 +379,9 @@ namespace UAlbion.Base.Tests
         {
             var info = new AssetInfo { AssetId = AssetId.From(AutomapTiles.Set1) };
             info.Set(AssetProperty.SubSprites, "(8,8,576) (16,16)");
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Common), AssetId.From(Palette.Unknown11) },
-                (x, s) => Loaders.AmorphousSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.AmorphousSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -338,9 +392,9 @@ namespace UAlbion.Base.Tests
                 AssetId = AssetId.From(CombatBackground.Toronto),
                 Width = 360
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.TorontoCombat), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -352,18 +406,18 @@ namespace UAlbion.Base.Tests
                 Width = 145,
                 Height = 165
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.JirinaarDay), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void FontTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Font.RegularFont), Width = 8, Height = 8 };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FontSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FontSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -375,18 +429,18 @@ namespace UAlbion.Base.Tests
                 Width = 16,
                 Height = 16
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void SlabTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(UiBackground.Slab), Width = 360 };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Common) },
-                (x, s) => Loaders.SlabLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.SlabLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -398,27 +452,27 @@ namespace UAlbion.Base.Tests
                 Width = 16,
                 Height = 16
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Toronto2D), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void CombatGfxTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(CombatGraphics.Unknown27) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.PlainsCombat), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.MultiHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.MultiHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void DungeonBgTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(DungeonBackground.EarlyGameL) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.JirinaarDay), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.HeaderBasedSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.SingleHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -430,45 +484,45 @@ namespace UAlbion.Base.Tests
                 Width = 64,
                 Height = 64
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.JirinaarDay), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void FullBodyPictureTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(FullBodyPicture.Tom) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Inventory), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.HeaderBasedSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.SingleHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void LargeNpcTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(LargeNpc.Christine) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Toronto2D), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.HeaderBasedSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.SingleHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void LargePartyMemberTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(LargePartyMember.Tom) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.IskaiIndoorDark), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.HeaderBasedSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.SingleHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void MonsterGfxTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(MonsterGraphics.Krondir) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.DungeonCombat), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.MultiHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.MultiHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -481,9 +535,9 @@ namespace UAlbion.Base.Tests
                 File = new AssetFileInfo()
             };
             info.File.Set(AssetProperty.Transposed, true);
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.JirinaarDay), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         /* No code to write these atm, if anyone wants to mod them or add new ones they can still use ImageMagick or something to convert to ILBM
@@ -491,7 +545,7 @@ namespace UAlbion.Base.Tests
         public void PictureTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(Picture.OpenChestWithGold) };
-            Test<InterlacedBitmap>(info.AssetId, null, (x, s) => Loaders.InterlacedBitmapLoader.Serdes(x, info, AssetMapping.Global, s));
+            Test<InterlacedBitmap>(info.AssetId, null, (x, s) => Loaders.InterlacedBitmapLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         } //*/
 
         [Fact]
@@ -502,27 +556,27 @@ namespace UAlbion.Base.Tests
                 AssetId = AssetId.From(Portrait.Tom),
                 Width = 34
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void SmallNpcTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(SmallNpc.Krondir) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.FirstIslandDay), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.HeaderBasedSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.SingleHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
         public void SmallPartyMemberTest()
         {
             var info = new AssetInfo { AssetId = AssetId.From(SmallPartyMember.Tom) };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.FirstIslandDay), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.HeaderBasedSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.SingleHeaderSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -533,9 +587,9 @@ namespace UAlbion.Base.Tests
                 AssetId = AssetId.From(TacticalGraphics.Unknown1),
                 Width = 32
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
 
         [Fact]
@@ -546,9 +600,9 @@ namespace UAlbion.Base.Tests
                 AssetId = AssetId.From(Wall.TorontoPanelling),
                 Width = 80
             };
-            Test<IEightBitImage>(info.AssetId,
+            Test<IReadOnlyTexture<byte>>(info.AssetId,
                 new[] { AssetId.From(Palette.Toronto3D), AssetId.From(Palette.Common) },
-                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s));
+                (x, s) => Loaders.FixedSizeSpriteLoader.Serdes(x, info, AssetMapping.Global, s, JsonUtil));
         }
         // */
     }

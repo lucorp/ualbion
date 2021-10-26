@@ -1,11 +1,9 @@
 ﻿using System;
 using System.Globalization;
-using Newtonsoft.Json;
 using UAlbion.Config;
 
 namespace UAlbion.Formats.Assets
 {
-    [JsonConverter(typeof(ToStringJsonConverter))]
     public struct InventoryId : IEquatable<InventoryId>
     {
         public InventoryId(AssetId id)
@@ -14,7 +12,7 @@ namespace UAlbion.Formats.Assets
             {
                 AssetType.Chest => InventoryType.Chest,
                 AssetType.Merchant => InventoryType.Merchant,
-                AssetType.PartyMember => InventoryType.Player,
+                AssetType.Party => InventoryType.Player,
                 AssetType.Monster => InventoryType.Monster,
                 _ => throw new ArgumentOutOfRangeException($"Tried to convert an asset of type {id.Type} (value {id.Id}) to an inventory id")
             };
@@ -30,50 +28,39 @@ namespace UAlbion.Formats.Assets
         public InventoryType Type { get; }
         public ushort Id { get; }
 
-        public override string ToString() => ((AssetId)this).ToString();
-        public string Serialise() => Type switch
-        {
-            InventoryType.Player => "P:" + Id,
-            InventoryType.Chest => "C:" + Id,
-            InventoryType.Merchant => "M:" + Id,
-            InventoryType.Monster => "E:" + Id,
-            InventoryType.CombatLoot => "CombatLoot",
-            _ => Type + ":" + Id.ToString(CultureInfo.InvariantCulture)
-        };
-
         public AssetId ToAssetId() =>
             Type switch
             {
-                InventoryType.Player => new AssetId(AssetType.PartyMember, Id),
+                InventoryType.Player => new AssetId(AssetType.Party, Id),
                 InventoryType.Chest => new AssetId(AssetType.Chest, Id),
                 InventoryType.Merchant => new AssetId(AssetType.Merchant, Id),
+                InventoryType.Monster => new AssetId(AssetType.Monster, Id),
                 _ => AssetId.None,
             };
 
+        public override string ToString() => Type switch
+        {
+            InventoryType.CombatLoot => "CombatLoot",
+            _ => ToAssetId().ToString()
+        };
+
         public static InventoryId Parse(string s)
         {
-            throw new NotImplementedException();
-            /*
-            if (s == null || !s.Contains(":"))
-                throw new FormatException($"Tried to parse an InventoryId without a : (\"{s}\")");
-            var parts = s.Split(':');
-            var id = ushort.Parse(parts[1], CultureInfo.InvariantCulture);
-            switch (parts[0])
-            {
-                case "P": return new InventoryId((PartyCharacterId)id);
-                case "C": return new InventoryId((ChestId)id);
-                case "M": return new InventoryId((MerchantId)id);
-                case "CombatLoot": return new InventoryId(InventoryType.CombatLoot, id);
-                default: return new InventoryId((InventoryType)Enum.Parse(typeof(InventoryType), parts[0]), id);
-            }
-            */
+            if (s == null)
+                throw new FormatException($"Tried to parse an empty InventoryId");
+
+            if (s.Equals("CombatLoot", StringComparison.OrdinalIgnoreCase))
+                return new InventoryId(InventoryType.CombatLoot, 0);
+
+            var assetId = AssetId.Parse(s);
+            return new InventoryId(assetId);
         }
 
         public static explicit operator int(InventoryId id) => ToInt32(id);
         public static int ToInt32(InventoryId id) => (int)id.Type << 16 | id.Id;
         public static explicit operator InventoryId(int id) => ToInventoryId(id);
         public static InventoryId ToInventoryId(int id)
-            => new InventoryId(
+            => new(
                 (InventoryType)((id & 0x7fff0000) >> 16),
                 (ushort)(id & 0xffff));
 
@@ -82,12 +69,12 @@ namespace UAlbion.Formats.Assets
         public static explicit operator InventoryId(ChestId id) => ToInventoryId(id);
         public static explicit operator InventoryId(MerchantId id) => ToInventoryId(id);
         public static explicit operator AssetId(InventoryId id) => ToAssetId(id);
-        public static InventoryId ToInventoryId(AssetId id) => new InventoryId(id);
-        public static AssetId ToAssetId(InventoryId id) => new AssetId(id.Type switch
+        public static InventoryId ToInventoryId(AssetId id) => new(id);
+        public static AssetId ToAssetId(InventoryId id) => new(id.Type switch
         {
             InventoryType.Chest => AssetType.Chest,
             InventoryType.Merchant => AssetType.Merchant,
-            InventoryType.Player => AssetType.PartyMember,
+            InventoryType.Player => AssetType.Party,
             InventoryType.Monster => AssetType.Monster,
             _ => throw new ArgumentOutOfRangeException($"Cannot convert inventory id of type {id.Type} to an AssetId")
         }, id.Id);

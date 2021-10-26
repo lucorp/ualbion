@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Numerics;
 using UAlbion.Config;
-using UAlbion.Core;
 using UAlbion.Core.Visual;
 using UAlbion.Formats.Assets.Save;
 using UAlbion.Game.Events;
@@ -17,7 +16,7 @@ namespace UAlbion.Game.Gui.Status
         const int MarkerRadius = 10;
         static readonly (int, int) Position  = (7, 5);
         static readonly (int, int) Size  = (29, 29);
-        static readonly Vector2 CenterRelative = new Vector2(15, 15);
+        static readonly Vector2 CenterRelative = new(15, 15);
         static readonly (int, int) MarkerSize = (6, 6);
 
         readonly UiSpriteElement _face;
@@ -56,8 +55,8 @@ namespace UAlbion.Game.Gui.Status
                 var language = Resolve<ISettings>()?.Gameplay.Language;
                 _face.Id = language switch
                     {
-                        { } x when x == Base.Language.German => Base.CoreSprite.CompassDe,
-                        { } x when x == Base.Language.French => Base.CoreSprite.CompassFr,
+                        { } and Base.Language.German => Base.CoreSprite.CompassDe,
+                        { } and Base.Language.French => Base.CoreSprite.CompassFr,
                         _ => Base.CoreSprite.CompassEn
                     };
 

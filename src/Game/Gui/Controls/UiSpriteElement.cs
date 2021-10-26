@@ -3,7 +3,6 @@ using System.Numerics;
 using UAlbion.Api.Visual;
 using UAlbion.Core;
 using UAlbion.Core.Events;
-using UAlbion.Core.Textures;
 using UAlbion.Core.Visual;
 using UAlbion.Formats.Assets;
 
@@ -86,8 +85,13 @@ namespace UAlbion.Game.Gui.Controls
             _lastSize = size;
             _dirty = false;
 
-            var instances = _sprite.Access();
-            instances[0] = SpriteInstanceData.TopLeft(position, size, _sprite, _subId, _flags);
+            bool lockWasTaken = false;
+            var instances = _sprite.Lock(ref lockWasTaken);
+            try
+            {
+                instances[0] = new SpriteInstanceData(position, size, _sprite.Key.Texture.Regions[_subId], SpriteFlags.TopLeft | _flags);
+            }
+            finally { _sprite.Unlock(lockWasTaken); }
 
             return order;
         }
@@ -112,9 +116,9 @@ namespace UAlbion.Game.Gui.Controls
                 var texture = assets.LoadTexture(_id);
                 if (texture == null)
                     return;
-                var key = new SpriteKey(texture, order, SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
+                var key = new SpriteKey(texture, SpriteSampler.Point, order, SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
                 _sprite = sm.Borrow(key, 1, this);
-                _size = ((SubImage)texture.GetSubImage(0)).Size;
+                _size = texture.Regions[0].Size;
             }
         }
     }

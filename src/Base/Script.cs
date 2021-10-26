@@ -1,11 +1,7 @@
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-
 // ReSharper disable InconsistentNaming
 // ReSharper disable UnusedMember.Global
 namespace UAlbion.Base
 {
-    [JsonConverter(typeof(StringEnumConverter))]
     public enum Script : ushort
     {
         Unknown1 = 1,
@@ -23,7 +19,7 @@ namespace UAlbion.Base
         Unknown13 = 13,
         Unknown14 = 14,
         Unknown15 = 15,
-        Unknown16 = 16,
+        LeaveFirstIsland = 16,
         Unknown17 = 17,
         Unknown18 = 18,
         Unknown19 = 19,
@@ -69,7 +65,7 @@ namespace UAlbion.Base
         Unknown59 = 59,
         Unknown60 = 60,
         Unknown61 = 61,
-        Unknown62 = 62,
+        EndOfDemo = 62,
         Unknown200 = 200,
         Unknown201 = 201,
         Unknown202 = 202,

@@ -18,7 +18,7 @@ namespace UAlbion.Formats.Assets.Save
     {
         public const int MaxPartySize = 6;
         public const int MaxNpcCount = 96;
-        public static readonly DateTime Epoch = new DateTime(2200, 1, 1, 0, 0, 0);
+        public static readonly DateTime Epoch = new(2200, 1, 1, 0, 0, 0);
 
         public string Name { get; set; }
         public ushort Version { get; set; }
@@ -32,8 +32,8 @@ namespace UAlbion.Formats.Assets.Save
         public IDictionary<AssetId, Inventory> Inventories { get; } = new Dictionary<AssetId, Inventory>(); // TODO: Change to InventoryId?
         public IDictionary<AutomapId, byte[]> Automaps { get; } = new Dictionary<AutomapId, byte[]>();
 
-        readonly TickerDictionary _tickers  = new TickerDictionary();
-        readonly FlagDictionary _switches  = new FlagDictionary();
+        readonly TickerDictionary _tickers  = new();
+        readonly FlagDictionary _switches  = new();
         public IDictionary<TickerId, byte> Tickers => _tickers;
         public bool GetFlag(SwitchId flag) => _switches.GetFlag(flag);
         public void SetFlag(SwitchId flag, bool value) => _switches.SetFlag(flag, value);
@@ -42,14 +42,14 @@ namespace UAlbion.Formats.Assets.Save
         public uint Unk1 { get; set; }
         public byte[] Unk9 { get; set; }
         public byte[] Unknown15 { get; set; }
-        public MiscState Misc { get; private set; } = new MiscState();
+        public MiscState Misc { get; private set; } = new();
         public byte[] Unknown2C1 { get; set; }
         public byte[] Unknown5B9F { get; set; }
         public NpcState[] Npcs { get; } = new NpcState[MaxNpcCount];
         public byte[] Unknown5B71 { get; set; } 
         public Unknown35Byte[] Unk35Byte { get; set; } // Len = 16
-        public MapChangeCollection PermanentMapChanges { get; private set; } = new MapChangeCollection();
-        public MapChangeCollection TemporaryMapChanges { get; private set; } = new MapChangeCollection();
+        public MapChangeCollection PermanentMapChanges { get; private set; } = new();
+        public MapChangeCollection TemporaryMapChanges { get; private set; } = new();
         public IList<VisitedEvent> VisitedEvents { get; private set; } = new List<VisitedEvent>();
         public IList<PartyMemberId> ActiveMembers { get; private set; } = new PartyMemberId[MaxPartySize];
         public ISet<(AssetId, ushort)> DisabledChains { get; } = new HashSet<(AssetId, ushort)>();
@@ -66,7 +66,7 @@ namespace UAlbion.Formats.Assets.Save
             return s.FixedLengthString(nameof(Name), null, nameLength);
         }
 
-        public static SavedGame Serdes(SavedGame save, AssetMapping mapping, ISerializer s)
+        public static SavedGame Serdes(SavedGame save, AssetMapping mapping, ISerializer s, ISpellManager spellManager)
         {
             if (s == null) throw new ArgumentNullException(nameof(s));
             save ??= new SavedGame();
@@ -148,43 +148,45 @@ namespace UAlbion.Formats.Assets.Save
             ApiUtil.Assert(visitedEventsSize == visitedEventsCount * VisitedEvent.SizeOnDisk + 2);
             save.VisitedEvents = s.List(nameof(VisitedEvents), save.VisitedEvents, mapping, visitedEventsCount, VisitedEvent.Serdes);
 
-            var partyIds = save.Sheets.Keys.Where(x => x.Type == AssetType.PartyMember).Select(x => x.Id).ToList();
+            var partyIds = save.Sheets.Keys.Where(x => x.Type == AssetType.Party).Select(x => x.Id).ToList();
             partyIds.Add(199); // Force extra XLD length fields to be written for empty objects to preserve compat with original game.
             partyIds.Add(299);
 
             // s.Object($"XldPartyCharacter.0");
+            var context2 = (save, mapping);
+            var context3 = (save, mapping, spellManager);
 
-            XldContainer.Serdes(XldCategory.PartyCharacter, 1, 99, (save, mapping), s, SerdesPartyCharacter, partyIds);
-            XldContainer.Serdes(XldCategory.PartyCharacter, 100, 199, (save, mapping), s, SerdesPartyCharacter, partyIds);
-            XldContainer.Serdes(XldCategory.PartyCharacter, 200, 299, (save, mapping), s, SerdesPartyCharacter, partyIds);
+            XldContainer.Serdes(XldCategory.PartyCharacter, 1, 99, context3, s, SerdesPartyCharacter, partyIds);
+            XldContainer.Serdes(XldCategory.PartyCharacter, 100, 199, context3, s, SerdesPartyCharacter, partyIds);
+            XldContainer.Serdes(XldCategory.PartyCharacter, 200, 299, context3, s, SerdesPartyCharacter, partyIds);
 
             var automapIds = save.Automaps.Keys.Select(x => x.Id).ToList(); // TODO: Allow extension somehow
             automapIds.Add(199);
             automapIds.Add(399);
-            XldContainer.Serdes(XldCategory.Automap, 100, 199, (save, mapping), s, SerdesAutomap, automapIds);
-            XldContainer.Serdes(XldCategory.Automap, 200, 299, (save, mapping), s, SerdesAutomap, automapIds);
-            XldContainer.Serdes(XldCategory.Automap, 300, 399, (save, mapping), s, SerdesAutomap, automapIds);
+            XldContainer.Serdes(XldCategory.Automap, 100, 199, context2, s, SerdesAutomap, automapIds);
+            XldContainer.Serdes(XldCategory.Automap, 200, 299, context2, s, SerdesAutomap, automapIds);
+            XldContainer.Serdes(XldCategory.Automap, 300, 399, context2, s, SerdesAutomap, automapIds);
 
             var chestIds = save.Inventories.Keys.Where(x => x.Type == AssetType.Chest).Select(x => x.Id).ToList(); // TODO: Allow extension somehow
             chestIds.Add(199);
             chestIds.Add(599);
-            XldContainer.Serdes(XldCategory.Chest, 1, 99, (save, mapping), s, SerdesChest, chestIds);
-            XldContainer.Serdes(XldCategory.Chest, 100, 199, (save, mapping), s, SerdesChest, chestIds);
-            XldContainer.Serdes(XldCategory.Chest, 200, 299, (save, mapping), s, SerdesChest, chestIds);
-            XldContainer.Serdes(XldCategory.Chest, 500, 599, (save, mapping), s, SerdesChest, chestIds);
+            XldContainer.Serdes(XldCategory.Chest, 1, 99, context2, s, SerdesChest, chestIds);
+            XldContainer.Serdes(XldCategory.Chest, 100, 199, context2, s, SerdesChest, chestIds);
+            XldContainer.Serdes(XldCategory.Chest, 200, 299, context2, s, SerdesChest, chestIds);
+            XldContainer.Serdes(XldCategory.Chest, 500, 599, context2, s, SerdesChest, chestIds);
 
             var merchantIds = save.Inventories.Keys.Where(x => x.Type == AssetType.Merchant).Select(x => x.Id).ToList(); // TODO: Allow extension somehow
             merchantIds.Add(199);
             merchantIds.Add(299);
-            XldContainer.Serdes(XldCategory.Merchant, 1, 99, (save, mapping), s, SerdesMerchant, merchantIds);
-            XldContainer.Serdes(XldCategory.Merchant, 100, 199, (save, mapping), s, SerdesMerchant, merchantIds);
-            XldContainer.Serdes(XldCategory.Merchant, 200, 299, (save, mapping), s, SerdesMerchant, merchantIds);
+            XldContainer.Serdes(XldCategory.Merchant, 1, 99, context2, s, SerdesMerchant, merchantIds);
+            XldContainer.Serdes(XldCategory.Merchant, 100, 199, context2, s, SerdesMerchant, merchantIds);
+            XldContainer.Serdes(XldCategory.Merchant, 200, 299, context2, s, SerdesMerchant, merchantIds);
 
             var npcIds = save.Sheets.Keys.Select(x => x.Id).ToList(); // TODO: Allow extension somehow
             npcIds.Add(299);
-            XldContainer.Serdes(XldCategory.NpcCharacter, 1, 99, (save, mapping), s, SerdesNpcCharacter, npcIds);
-            XldContainer.Serdes(XldCategory.NpcCharacter, 100, 199, (save, mapping), s, SerdesNpcCharacter, npcIds);
-            XldContainer.Serdes(XldCategory.NpcCharacter, 200, 299, (save, mapping), s, SerdesNpcCharacter, npcIds);
+            XldContainer.Serdes(XldCategory.NpcCharacter, 1, 99, context3, s, SerdesNpcCharacter, npcIds);
+            XldContainer.Serdes(XldCategory.NpcCharacter, 100, 199, context3, s, SerdesNpcCharacter, npcIds);
+            XldContainer.Serdes(XldCategory.NpcCharacter, 200, 299, context3, s, SerdesNpcCharacter, npcIds);
 
             s.RepeatU8("Padding", 0, 4);
 
@@ -193,30 +195,26 @@ namespace UAlbion.Formats.Assets.Save
             return save;
         }
 
-        static void SerdesPartyCharacter(int i, int size, (SavedGame, AssetMapping) context, ISerializer serializer)
+        static void SerdesPartyCharacter(int i, int size, (SavedGame save, AssetMapping mapping, ISpellManager spellManager) context, ISerializer serializer)
         {
             if (i > 0xff)
                 return;
 
-            var save = context.Item1;
-            var mapping = context.Item2;
-            var id = CharacterId.FromDisk(AssetType.PartyMember, i, mapping);
+            var id = CharacterId.FromDisk(AssetType.Party, i, context.mapping);
             CharacterSheet existing = null;
-            if (size > 0 || save.Sheets.TryGetValue(id, out existing))
-                save.Sheets[id] = CharacterSheet.Serdes(id, existing, mapping, serializer);
+            if (size > 0 || context.save.Sheets.TryGetValue(id, out existing))
+                context.save.Sheets[id] = CharacterSheet.Serdes(id, existing, context.mapping, serializer, context.spellManager);
         }
 
-        static void SerdesNpcCharacter(int i, int size, (SavedGame, AssetMapping) context, ISerializer serializer)
+        static void SerdesNpcCharacter(int i, int size, (SavedGame save, AssetMapping mapping, ISpellManager spellManager) context, ISerializer serializer)
         {
             if (i > 0xff)
                 return;
 
-            var save = context.Item1;
-            var mapping = context.Item2;
-            var id = CharacterId.FromDisk(AssetType.Npc, i, mapping);
+            var id = CharacterId.FromDisk(AssetType.Npc, i, context.mapping);
             CharacterSheet existing = null;
-            if (serializer.IsReading() || save.Sheets.TryGetValue(id, out existing))
-                save.Sheets[id] = CharacterSheet.Serdes(id, existing, mapping, serializer);
+            if (serializer.IsReading() || context.save.Sheets.TryGetValue(id, out existing))
+                context.save.Sheets[id] = CharacterSheet.Serdes(id, existing, context.mapping, serializer, context.spellManager);
         }
 
         static void SerdesAutomap(int i, int size, (SavedGame, AssetMapping) context, ISerializer serializer)

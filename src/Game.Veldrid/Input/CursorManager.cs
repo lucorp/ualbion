@@ -3,9 +3,9 @@ using System.Numerics;
 using UAlbion.Api.Visual;
 using UAlbion.Core;
 using UAlbion.Core.Events;
-using UAlbion.Core.Textures;
 using UAlbion.Core.Veldrid.Events;
 using UAlbion.Core.Visual;
+using UAlbion.Formats;
 using UAlbion.Formats.Assets;
 using UAlbion.Game.Entities;
 using UAlbion.Game.Events;
@@ -30,18 +30,25 @@ namespace UAlbion.Game.Veldrid.Input
         string _lastItemAmountText;
         bool _dirty = true;
         bool _showCursor = true;
+        bool _relative;
         int _frame;
 
         public CursorManager()
         {
-            On<RenderEvent>(e => Render());
-            On<IdleClockEvent>(e => _frame++);
+            On<RenderEvent>(_ => Render());
+            On<IdleClockEvent>(_ => _frame++);
+            On<WindowResizedEvent>(_ => SetCursor(_cursorId));
             On<SetCursorEvent>(e => SetCursor(e.CursorId));
             On<ShowCursorEvent>(e => { _showCursor = e.Show; _dirty = true; });
-            On<WindowResizedEvent>(e => SetCursor(_cursorId));
+            On<SetRelativeMouseModeEvent>(e => _relative = e.Enabled);
             On<InputEvent>(e =>
             {
-                Position = e.Snapshot.MousePosition;
+                if (_relative)
+                {
+                    var windowState = Resolve<IWindowManager>();
+                    Position = new Vector2((int)(windowState.PixelWidth / 2), (int)(windowState.PixelHeight / 2));
+                }
+                else Position = e.Snapshot.MousePosition;
                 _dirty = true;
             });
             On<SetCursorPositionEvent>(e =>
@@ -58,10 +65,10 @@ namespace UAlbion.Game.Veldrid.Input
             var config = assets.GetAssetInfo(cursorId);
 
             _cursorId = cursorId;
-            var hotspot = config?.GetRaw("Hotspot");
+            var hotspot = CursorHotspot.Parse(config?.Get<string>("Hotspot", null));
             _hotspot = hotspot == null
                 ? Vector2.Zero
-                : window.GuiScale * new Vector2(hotspot.Value<int>("X"), hotspot.Value<int>("Y"));
+                : window.GuiScale * new Vector2(hotspot.X, hotspot.Y);
             _dirty = true;
         }
 
@@ -100,14 +107,21 @@ namespace UAlbion.Game.Veldrid.Input
             var commonColors = Resolve<ICommonColors>();
             if (_hotspotSprite == null)
             {
-                var key = new SpriteKey(commonColors.BorderTexture, DrawLayer.MaxLayer, SpriteKeyFlags.NoTransform | SpriteKeyFlags.NoDepthTest);
+                var key = new SpriteKey(commonColors.BorderTexture, SpriteSampler.Point, DrawLayer.MaxLayer, SpriteKeyFlags.NoTransform | SpriteKeyFlags.NoDepthTest);
                 _hotspotSprite = sm.Borrow(key, 1, this);
             }
 
-            var instances = _hotspotSprite.Access();
             var position = new Vector3(window.PixelToNorm(Position), 0.0f);
             var size = window.UiToNormRelative(Vector2.One);
-            instances[0] = SpriteInstanceData.TopLeft(position, size, _hotspotSprite, (int)commonColors.Palette[CommonColor.Yellow3], 0);
+
+            bool lockWasTaken = false;
+            var instances = _hotspotSprite.Lock(ref lockWasTaken);
+            try
+            {
+                var region = _hotspotSprite.Key.Texture.Regions[(int) commonColors.Palette[CommonColor.Yellow3]];
+                instances[0] = new SpriteInstanceData(position, size, region, SpriteFlags.TopMid);
+            }
+            finally { _hotspotSprite.Unlock(lockWasTaken); }
         }
 
         void RenderCursor(IAssetManager assets, ISpriteManager sm, IWindowManager window, Vector3 position)
@@ -128,13 +142,19 @@ namespace UAlbion.Game.Veldrid.Input
             if (cursorTexture != _cursorSprite?.Key.Texture)
             {
                 _cursorSprite?.Dispose();
-                var key = new SpriteKey(cursorTexture, DrawLayer.Cursor, SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
+                var key = new SpriteKey(cursorTexture, SpriteSampler.Point, DrawLayer.Cursor, SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
                 _cursorSprite = sm.Borrow(key, 1, this);
             }
 
-            var instances = _cursorSprite.Access();
             var size = window.UiToNormRelative(new Vector2(cursorTexture.Width, cursorTexture.Height));
-            instances[0] = SpriteInstanceData.TopMid(position, size, _cursorSprite, 0, 0);
+
+            bool lockWasTaken = false;
+            var instances = _cursorSprite.Lock(ref lockWasTaken);
+            try
+            {
+                instances[0] = new SpriteInstanceData(position, size, _cursorSprite.Key.Texture.Regions[0], SpriteFlags.TopMid);
+            }
+            finally { _cursorSprite.Unlock(lockWasTaken); }
         }
 
         void RenderItemInHandCursor(IAssetManager assets, ISpriteManager sm, IWindowManager window, Vector3 normPosition)
@@ -164,8 +184,8 @@ namespace UAlbion.Game.Veldrid.Input
 
             switch (held.Item)
             {
-                case Gold _: texture = assets.LoadTexture(Base.CoreSprite.UiGold); break;
-                case Rations _: texture = assets.LoadTexture(Base.CoreSprite.UiFood); break;
+                case Gold: texture = assets.LoadTexture(Base.CoreSprite.UiGold); break;
+                case Rations: texture = assets.LoadTexture(Base.CoreSprite.UiFood); break;
                 case ItemData item:
                 {
                     texture = assets.LoadTexture(item.Icon);
@@ -185,20 +205,23 @@ namespace UAlbion.Game.Veldrid.Input
             {
                 _itemSprite?.Dispose();
 
-                var key = new SpriteKey(texture, DrawLayer.Cursor,
-                    SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
-
+                var key = new SpriteKey(texture, SpriteSampler.Point, DrawLayer.Cursor, SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
                 _itemSprite = sm.Borrow(key, 1, this);
             }
 
-            var subImage = (SubImage)texture.GetSubImage(subItem);
+            var subImage = texture.Regions[subItem];
 
-            // TODO: Quantity text
-            var instances = _itemSprite.Access();
-            instances[0] = SpriteInstanceData.TopMid(
-                normPosition + new Vector3(window.UiToNormRelative(6, 6), 0),
-                window.UiToNormRelative(subImage.Size),
-                subImage, 0);
+            bool lockWasTaken = false;
+            var instances = _itemSprite.Lock(ref lockWasTaken);
+            try
+            {
+                // TODO: Quantity text
+                instances[0] = new SpriteInstanceData(
+                    normPosition + new Vector3(window.UiToNormRelative(6, 6), 0),
+                    window.UiToNormRelative(subImage.Size),
+                    subImage, SpriteFlags.TopMid);
+            }
+            finally { _itemSprite.Unlock(lockWasTaken); }
 
             if (_itemAmountSprite != null)
                 _itemAmountSprite.Position = normPosition + new Vector3(window.UiToNormRelative(6, 18), 0);

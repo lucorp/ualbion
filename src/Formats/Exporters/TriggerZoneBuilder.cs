@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UAlbion.Api;
 using UAlbion.Formats.Assets.Maps;
+using UAlbion.Formats.Exporters.Tiled;
 
 namespace UAlbion.Formats.Exporters
 {
@@ -14,7 +15,7 @@ namespace UAlbion.Formats.Exporters
             var zones = new List<(ZoneKey, Geometry.Polygon)>();
             foreach (var zone in map.Zones)
             {
-                zones.Add((zone.Key, new Geometry.Polygon { Points = new[]
+                zones.Add((new ZoneKey(zone), new Geometry.Polygon { Points = new[]
                     {
                         (zone.X, zone.Y),
                         (zone.X+1, zone.Y),
@@ -50,6 +51,8 @@ namespace UAlbion.Formats.Exporters
                     FillZone(regions, zoneMap, map.Width, current[0], index);
             }
 
+            RemoveVoids(regions);
+
             var edgeSets = regions.Select(x => (x.Item1, FindRegionEdges(x.Item2))).ToList();
 
             // zoneMap should be empty now
@@ -59,14 +62,89 @@ namespace UAlbion.Formats.Exporters
             for (int i = 0; i < edgeSets.Count; i++)
                 edgeSets[i] = (edgeSets[i].Item1, MergeEdges(edgeSets[i].Item2));
 
-            // Dig out any internal voids
-
             // Follow edges clockwise to build poly
             return edgeSets
                 .SelectMany(x =>
                     BuildPolygonsFromSortedEdges(x.Item2)
                         .Select(y => (x.Item1, y)))
                 .ToList();
+        }
+
+        static void FillGrid(int[] grid, int width, int index, int color)
+        {
+            Fill(width, index, grid.Length, n =>
+            {
+                if (grid[n] != 0)
+                    return false;
+                grid[n] = color;
+                return true;
+            });
+        }
+
+        static void FillBorders(int[] grid, int width, int color)
+        {
+            int height = grid.Length / width;
+            if (grid.Length != width * height)
+                throw new ArgumentException($"Expected grid to be a rectangular array of width {width}, but it has a length that is not an even multiple ({grid.Length})", nameof(grid));
+
+            int lastRow = (height - 1) * width;
+            for (int i = 0; i < width; i++)
+            {
+                FillGrid(grid, width, i, color); // Fill top
+                FillGrid(grid, width, i + lastRow, color); // Fill bottom
+            }
+
+            for (int j = 0; j < height; j++)
+            {
+                FillGrid(grid, width, j * width, color);
+                FillGrid(grid, width, (j+1) * width - 1, color);
+            }
+        }
+
+        static void RemoveVoids(List<(ZoneKey key, IList<(int x, int y)> points)> regions)
+        {
+            for (int regionIndex = 0; regionIndex < regions.Count; regionIndex++)
+            {
+                var region = regions[regionIndex];
+                if (region.points.Count < 4) // Impossible to enclose an internal tile with fewer than 4
+                    continue;
+
+                var extents = GetExtents(region.points);
+                var width = 1 + extents.x1 - extents.x0;
+                var height = 1 + extents.y1 - extents.y0;
+                var grid = new int[width * height];
+
+                // Populate occupied area with 1, then fill any border edges with 2. Any remaining 0's must be due to an internal void.
+                // Iteratively split the region vertically along the left-most X-coordinate of the internal void until no voids remain.
+                foreach (var (x, y) in region.points)
+                {
+                    int index = (y - extents.y0) * width + (x - extents.x0);
+                    grid[index] = 1;
+                }
+
+                FillBorders(grid, width, 2);
+
+                for (int gridIndex = 0; gridIndex < grid.Length; gridIndex++)
+                {
+                    if (grid[gridIndex] != 0)
+                        continue;
+
+                    int cutoff = gridIndex % width + extents.x0;
+
+                    // Void detected! Split across the x-coord
+                    var leftRegion = new List<(int x, int y)>();
+                    var rightRegion = new List<(int x, int y)>();
+                    foreach (var (x, y) in region.points)
+                    {
+                        if (x <= cutoff) leftRegion.Add((x,y));
+                        else rightRegion.Add((x,y));
+                    }
+
+                    regions[regionIndex] = (region.key, leftRegion); // Left region is guaranteed to contain no voids
+                    regions.Add((region.key, rightRegion));
+                    break;
+                }
+            }
         }
 
         public static IList<Edge> FindRegionEdges(IList<(int, int)> region)
@@ -156,6 +234,7 @@ namespace UAlbion.Formats.Exporters
 
             return edges;
         }
+
         static void AddAdjacency(EdgeLookup adjacency, ushort x, ushort y, int index)
         {
             if (!adjacency.TryGetValue((x, y), out var indices))
@@ -232,12 +311,14 @@ namespace UAlbion.Formats.Exporters
             return cur;
         }
 
+        /*
         static void FillZone(List<(ZoneKey, IList<(int, int)>)> regions, List<MapEventZone>[] zoneMap, int width, MapEventZone zone, int index)
         {
             Queue<int> pending = new Queue<int>();
             pending.Enqueue(index);
             var region = new List<(int, int)>();
-            regions.Add((zone.Key, region));
+            var key = new ZoneKey(zone);
+            regions.Add((key, region));
 
             while (pending.Count > 0)
             {
@@ -251,7 +332,7 @@ namespace UAlbion.Formats.Exporters
                 for (int k = 0; k < targetZones.Count;)
                 {
                     var other = targetZones[k];
-                    if (other.Key != zone.Key)
+                    if (new ZoneKey(other) != key)
                     {
                         k++;
                         continue;
@@ -265,6 +346,135 @@ namespace UAlbion.Formats.Exporters
                     targetZones.RemoveAt(k);
                 }
             }
+        }
+        */
+        static void FillZone(List<(ZoneKey, IList<(int, int)>)> regions, List<MapEventZone>[] zoneMap, int width, MapEventZone zone, int index)
+        {
+            var key = new ZoneKey(zone);
+            var region = new List<(int, int)>();
+            regions.Add((key, region));
+
+            Fill(width, index, zoneMap.Length, n =>
+            {
+                var targetZones = zoneMap[n];
+                if (targetZones == null || targetZones.Count == 0)
+                    return false;
+
+                bool hit = false;
+                for (int k = 0; k < targetZones.Count;)
+                {
+                    var other = targetZones[k];
+                    if (new ZoneKey(other) != key)
+                    {
+                        k++;
+                        continue;
+                    }
+
+                    hit = true;
+                    byte i = (byte)(n % width);
+                    byte j = (byte)(n / width);
+                    region.Add((i, j));
+                    targetZones.RemoveAt(k);
+                }
+
+                return hit;
+            });
+        }
+
+        static void Fill(int width, int startIndex, int arraySize, Func<int, bool> matchFunc)
+        {
+            Queue<int> pending = new Queue<int>();
+            pending.Enqueue(startIndex);
+            while (pending.Count > 0)
+            {
+                var n = pending.Dequeue();
+
+                bool isMatch = matchFunc(n);
+                if (!isMatch)
+                    continue;
+
+                byte i = (byte)(n % width);
+                if (i > 0)                 pending.Enqueue(n - 1); // Check left
+                if (i < width - 1)         pending.Enqueue(n + 1); // Check right
+                if (n - width >= 0)        pending.Enqueue(n - width); // Check above
+                if (n + width < arraySize) pending.Enqueue(n + width); // Check below
+            }
+        }
+
+        static (int x0, int y0, int x1, int y1) GetExtents(IEnumerable<(int x, int y)> points)
+        {
+            (int x, int y) min = (int.MaxValue, int.MaxValue);
+            (int x, int y) max = (int.MinValue, int.MinValue);
+            foreach (var point in points)
+            {
+                if (point.x < min.x) min.x = point.x;
+                if (point.y < min.y) min.y = point.y;
+                if (point.x > max.x) max.x = point.x;
+                if (point.y > max.y) max.y = point.y;
+            }
+            return (min.x, min.y, max.x, max.y);
+        }
+
+        static (int x0, int y0, int x1, int y1) GetExtents(IEnumerable<((int x, int y) from, (int x, int y) to)> shape) // Assume edges are already sorted
+        {
+            (int x, int y) min = (int.MaxValue, int.MaxValue);
+            (int x, int y) max = (int.MinValue, int.MinValue);
+            foreach (var (from, to) in shape)
+            {
+                if (from.x < min.x) min.x = from.x;
+                if (from.y < min.y) min.y = from.y;
+
+                if (to.x > max.x) max.x = to.x;
+                if (to.y > max.y) max.y = to.y;
+            }
+            return (min.x, min.y, max.x, max.y);
+        }
+
+        static ((int x, int y) from, (int x, int y) to)[] SortEdges(IEnumerable<((int x, int y) from, (int x, int y) to)> shape)
+        {
+            return shape.Select(edge =>
+            {
+                if (edge.to.x < edge.from.x) return (edge.to, edge.from);
+                if (edge.to.x == edge.from.x && edge.to.y < edge.from.y) return (edge.to, edge.from);
+                return (edge.from, edge.to);
+            }).OrderBy(x => x).ToArray();
+        }
+
+        static float Lerp(float t, float a, float b) => a + (b - a) * t;
+
+        static bool TestEdge(int i, int j, ((int x, int y) from, (int x, int y) to) edge)
+        {
+            if (edge.from.x == edge.to.x) return false;
+            if (edge.from.x > i) return false;
+            if (edge.to.x <= i) return false;
+            if (edge.to.y == edge.from.y) return edge.to.y <= j;
+
+            float t = (float)(i - edge.from.x) / (edge.to.x - edge.from.x);
+            float yIntercept = Lerp(t, edge.from.y, edge.to.y);
+            return yIntercept <= j;
+        }
+
+        static bool TestPoint(int i, int j, IEnumerable<((int x, int y) from, (int x, int y) to)> shape)
+        {
+            int intersectionsAbove = 0;
+
+            foreach (var edge in shape)
+                if (TestEdge(i, j, edge))
+                    intersectionsAbove++;
+
+            return (intersectionsAbove & 1) == 1;
+        }
+
+        public static IList<(int x, int y)> GetPointsInsideShape(IEnumerable<((int x, int y) from, (int x, int y) to)> shape)
+        {
+            var results = new List<(int x, int y)>();
+            shape = SortEdges(shape);
+            var rect = GetExtents(shape);
+            for (int j = rect.y0; j < rect.y1; j++)
+                for (int i = rect.x0; i < rect.x1; i++)
+                    if (TestPoint(i, j, shape))
+                        results.Add((i, j));
+            return results;
         }
     }
 }

@@ -7,35 +7,39 @@ using UAlbion.Api;
 using UAlbion.Config;
 using UAlbion.Core;
 using UAlbion.Formats.Assets;
+using UAlbion.Game.Magic;
 using UAlbion.Game.Settings;
 
 namespace UAlbion.Game.Assets
 {
     public static class ConvertAssets
     {
-        static (ModApplier, EventExchange) BuildModApplier(string baseDir, string mod, IFileSystem disk, ICoreFactory factory)
+        static (ModApplier, EventExchange, AssetLoaderRegistry) BuildModApplier(string baseDir, string mod, IFileSystem disk, IJsonUtil jsonUtil)
         {
-            var config = GeneralConfig.Load(Path.Combine(baseDir, "data", "config.json"), baseDir, disk);
+            var config = GeneralConfig.Load(Path.Combine(baseDir, "data", "config.json"), baseDir, disk, jsonUtil);
             var applier = new ModApplier();
             var exchange = new EventExchange(new LogExchange());
+            var assetLoaderRegistry = new AssetLoaderRegistry();
             exchange
                 .Register(disk)
+                .Register(jsonUtil)
                 .Register<IGeneralConfig>(config)
-                .Register(factory)
                 .Attach(new StdioConsoleLogger())
-                .Attach(new AssetLoaderRegistry())
+                .Attach(assetLoaderRegistry)
                 .Attach(new ContainerRegistry())
                 .Attach(new PostProcessorRegistry())
                 .Attach(new AssetLocator())
+                .Attach(new SpellManager())
                 .Attach(new SettingsManager(new GeneralSettings())) // Used for event comments
                 .Attach(applier)
                 ;
             applier.LoadMods(config, new[] { mod });
-            return (applier, exchange);
+            return (applier, exchange, assetLoaderRegistry);
         }
 
-        public static void Convert(IFileSystem disk,
-            ICoreFactory factory,
+        public static void Convert(
+            IFileSystem disk,
+            IJsonUtil jsonUtil,
             string fromMod,
             string toMod,
             string[] ids,
@@ -43,14 +47,16 @@ namespace UAlbion.Game.Assets
             Regex filePattern)
         {
             if (disk == null) throw new ArgumentNullException(nameof(disk));
-            if (factory == null) throw new ArgumentNullException(nameof(factory));
+            if (jsonUtil == null) throw new ArgumentNullException(nameof(jsonUtil));
 
             var baseDir = ConfigUtil.FindBasePath(disk);
-            var (from, fromExchange) = BuildModApplier(baseDir, fromMod, disk, factory);
-            var (to, toExchange) = BuildModApplier(baseDir, toMod, disk, factory);
+            var (from, fromExchange, fromLoaderRegistry) = BuildModApplier(baseDir, fromMod, disk, jsonUtil);
+            var (to, toExchange, toLoaderRegistry) = BuildModApplier(baseDir, toMod, disk, jsonUtil);
 
             using (fromExchange)
+            using (fromLoaderRegistry)
             using (toExchange)
+            using (toLoaderRegistry)
             {
                 // Give the "from" universe's asset manager "to" the to exchange so we can import the assets.
                 toExchange.Attach(new AssetManager(from)); 

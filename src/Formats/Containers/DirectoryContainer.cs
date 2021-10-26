@@ -15,11 +15,12 @@ namespace UAlbion.Formats.Containers
     /// </summary>
     public class DirectoryContainer : IAssetContainer
     {
-        public ISerializer Read(string path, AssetInfo info, IFileSystem disk)
+        public ISerializer Read(string path, AssetInfo info, IFileSystem disk, IJsonUtil jsonUtil)
         {
             if (info == null) throw new ArgumentNullException(nameof(info));
             if (disk == null) throw new ArgumentNullException(nameof(disk));
             var subAssets = new Dictionary<int, (string, string)>(); // path and name
+            // Pattern vars: 0=Index 1=SubItem 2=Name 3=Palette
             var pattern = info.Get(AssetProperty.Pattern, "{0}_{1}_{2}.dat");
 
             foreach (var filePath in disk.EnumerateDirectory(path, $"{info.Index}_*.*"))
@@ -41,7 +42,7 @@ namespace UAlbion.Formats.Containers
             {
                 using var bw = new BinaryWriter(ms, Encoding.UTF8, true);
                 using var s = new AlbionWriter(bw);
-                PackedChunks.Pack(s, subAssets.Keys.Max() + 1, i => 
+                PackedChunks.PackNamed(s, subAssets.Keys.Max() + 1, i => 
                     !subAssets.TryGetValue(i, out var pathAndName)
                         ? (Array.Empty<byte>(), null)
                         : (disk.ReadAllBytes(pathAndName.Item1), pathAndName.Item2));
@@ -56,7 +57,7 @@ namespace UAlbion.Formats.Containers
             });
         }
 
-        public void Write(string path, IList<(AssetInfo, byte[])> assets, IFileSystem disk)
+        public void Write(string path, IList<(AssetInfo, byte[])> assets, IFileSystem disk, IJsonUtil jsonUtil)
         {
             if (assets == null) throw new ArgumentNullException(nameof(assets));
             if (disk == null) throw new ArgumentNullException(nameof(disk));
@@ -91,14 +92,23 @@ namespace UAlbion.Formats.Containers
                         if (subAssetBytes.Length == 0)
                             continue;
 
-                        var filename = info.BuildFilename(pattern, i, name);
-                        disk.WriteAllBytes(Path.Combine(path, filename), subAssetBytes);
+                        if (string.IsNullOrWhiteSpace(name))
+                            name = null;
+
+                        var filename = name ?? info.BuildFilename(pattern, i, ConfigUtil.AssetName(info.AssetId));
+                        var fullPath = Path.Combine(path, filename);
+
+                        var dir = Path.GetDirectoryName(fullPath);
+                        if (!disk.DirectoryExists(dir))
+                            disk.CreateDirectory(dir);
+
+                        disk.WriteAllBytes(fullPath, subAssetBytes);
                     }
                 }
             }
         }
 
-        public List<(int, int)> GetSubItemRanges(string path, AssetFileInfo info, IFileSystem disk)
+        public List<(int, int)> GetSubItemRanges(string path, AssetFileInfo info, IFileSystem disk, IJsonUtil jsonUtil)
         {
             if (disk == null) throw new ArgumentNullException(nameof(disk));
             var subIds = new List<int>();
@@ -108,7 +118,7 @@ namespace UAlbion.Formats.Containers
             foreach (var filePath in disk.EnumerateDirectory(path))
             {
                 var file = Path.GetFileName(filePath);
-                int index = file.IndexOf('_');
+                int index = file.IndexOf('_', StringComparison.InvariantCulture);
                 var part = index == -1 ? file : file.Substring(0, index);
                 if (!int.TryParse(part, out var asInt))
                     continue;

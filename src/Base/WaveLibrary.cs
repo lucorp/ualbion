@@ -1,11 +1,7 @@
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-
 // ReSharper disable InconsistentNaming
 // ReSharper disable UnusedMember.Global
 namespace UAlbion.Base
 {
-    [JsonConverter(typeof(StringEnumConverter))]
     public enum WaveLibrary : byte
     {
         SomewhatMenacing = 1,
@@ -46,15 +42,16 @@ namespace UAlbion.Base
         WindyLivestockAmbient2 = 36,
         // Unknown37 = 37,
         // Unknown38 = 38,
-        // Unknown39 = 39,
-        // Unknown40 = 40,
-        // Unknown41 = 41,
-        // Unknown42 = 42,
-        // HalfBrokenMidi = 43,
+        Invalid39 = 39,
+        Invalid40 = 40,
+        Invalid41 = 41,
+        Invalid42 = 42,
+        HalfBrokenMidi = 43,
         // Unknown44 = 44,
         // Unknown45 = 45,
         // ShortOptimisticGlissando = 46,
-        // Invalid = 51,
-        // Invalid2 = 53,
+        Invalid51 = 51,
+        Invalid53 = 53,
+        Invalid58 = 58,
     }
 }

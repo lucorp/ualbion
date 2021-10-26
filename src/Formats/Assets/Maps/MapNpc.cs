@@ -1,6 +1,7 @@
 ﻿using System;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 using SerdesNet;
+using UAlbion.Api;
 using UAlbion.Config;
 using UAlbion.Formats.MapEvents;
 
@@ -9,8 +10,9 @@ namespace UAlbion.Formats.Assets.Maps
     public class MapNpc
     {
         public const int SizeOnDisk = 10;
+        public const int WaypointCount = 0x480;
 
-        public int Index { get; private set; }
+        [JsonIgnore] public int Index { get; private set; }
         public AssetId Id { get; set; } // MonsterGroup, Npc etc
         // public SampleId? Sound { get; set; }
         public byte Sound { get; set; }
@@ -78,7 +80,7 @@ namespace UAlbion.Formats.Assets.Maps
             }
             else
             {
-                Waypoints ??= new NpcWaypoint[0x480];
+                Waypoints ??= new NpcWaypoint[WaypointCount];
                 for (int i = 0; i < Waypoints.Length; i++)
                 {
                     byte x = s.UInt8("x", Waypoints[i].X);

@@ -8,11 +8,12 @@ namespace UAlbion.Game.Scenes
 {
     public interface IAutoMapScene : IScene { }
     [Scene(SceneId.Automap)]
-    public class AutomapScene : Scene, IAutoMapScene
+    public class AutomapScene : Container, IAutoMapScene
     {
-        public AutomapScene() : base(nameof(SceneId.Automap), new OrthographicCamera())
+        public AutomapScene() : base(nameof(SceneId.Automap))
         {
-            AttachChild(new CameraMotion2D((OrthographicCamera)Camera));
+            var camera = AttachChild(new OrthographicCamera());
+            AttachChild(new CameraMotion2D(camera));
         }
 
         protected override void Subscribed()

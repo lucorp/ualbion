@@ -18,11 +18,11 @@ namespace UAlbion.Game.Assets
 {
     public class ModApplier : Component, IModApplier
     {
-        readonly Dictionary<string, ModInfo> _mods = new Dictionary<string, ModInfo>();
-        readonly List<ModInfo> _modsInReverseDependencyOrder = new List<ModInfo>();
-        readonly AssetCache _assetCache = new AssetCache();
-        readonly Dictionary<string, LanguageConfig> _languages = new Dictionary<string, LanguageConfig>();
-        readonly Dictionary<string, string> _extraPaths = new Dictionary<string, string>(); // Just used for $(MOD)
+        readonly Dictionary<string, ModInfo> _mods = new();
+        readonly List<ModInfo> _modsInReverseDependencyOrder = new();
+        readonly AssetCache _assetCache = new();
+        readonly Dictionary<string, LanguageConfig> _languages = new();
+        readonly Dictionary<string, string> _extraPaths = new(); // Just used for $(MOD)
 
         IAssetLocator _assetLocator;
 
@@ -30,7 +30,7 @@ namespace UAlbion.Game.Assets
         {
             Languages = new ReadOnlyDictionary<string, LanguageConfig>(_languages);
             AttachChild(_assetCache);
-            On<SetLanguageEvent>(e =>
+            On<SetLanguageEvent>(_ =>
             {
                 // TODO: Different languages could have different sub-id ranges in their
                 // container files, so we should really be invalidating / rebuilding the whole asset config too.
@@ -56,12 +56,11 @@ namespace UAlbion.Game.Assets
             _modsInReverseDependencyOrder.Clear();
             AssetMapping.Global.Clear();
 
-            var disk = Resolve<IFileSystem>();
             foreach (var mod in mods)
-                LoadMod(config.ResolvePath("$(MODS)"), mod, disk);
+                LoadMod(config.ResolvePath("$(MODS)"), mod);
 
             _modsInReverseDependencyOrder.Reverse();
-
+            Raise(ModsLoadedEvent.Instance);
         }
 
         public IEnumerable<string> ShaderPaths =>
@@ -69,7 +68,7 @@ namespace UAlbion.Game.Assets
                 .Select(mod => mod.ShaderPath)
                 .Where(x => x != null);
 
-        void LoadMod(string dataDir, string modName, IFileSystem disk)
+        void LoadMod(string dataDir, string modName)
         {
             if (string.IsNullOrEmpty(modName))
                 return;
@@ -77,40 +76,44 @@ namespace UAlbion.Game.Assets
             if (_mods.ContainsKey(modName))
                 return;
 
-            if (modName.Any(c => c == '\\' || c == '/' || c == Path.DirectorySeparatorChar))
+            if (modName.Any(c => c is '\\' or '/' || c == Path.DirectorySeparatorChar))
             {
-                Raise(new LogEvent(LogEvent.Level.Error, $"Mod {modName} is not a simple directory name"));
+                Error($"Mod {modName} is not a simple directory name");
                 return;
             }
+
+            var disk = Resolve<IFileSystem>();
+            var generalConfig = Resolve<IGeneralConfig>();
+            var jsonUtil = Resolve<IJsonUtil>();
 
             string path = Path.Combine(dataDir, modName);
 
             var assetConfigPath = Path.Combine(path, "assets.json");
             if (!disk.FileExists(assetConfigPath))
             {
-                Raise(new LogEvent(LogEvent.Level.Error, $"Mod {modName} does not contain an asset.config file"));
+                Error($"Mod {modName} does not contain an asset.config file");
                 return;
             }
 
             var modConfigPath = Path.Combine(path, "modinfo.json");
             if (!disk.FileExists(modConfigPath))
             {
-                Raise(new LogEvent(LogEvent.Level.Error, $"Mod {modName} does not contain an modinfo.config file"));
+                Error($"Mod {modName} does not contain an modinfo.config file");
                 return;
             }
 
-            var generalConfig = Resolve<IGeneralConfig>();
-            var assetConfig = AssetConfig.Load(assetConfigPath, disk);
-            var modConfig = ModConfig.Load(modConfigPath, disk);
-            var modInfo = new ModInfo(modName, assetConfig, modConfig, path);
+            var modMapping = new AssetMapping();
+            var assetConfig = AssetConfig.Load(assetConfigPath, modMapping, disk, jsonUtil);
+            var modConfig = ModConfig.Load(modConfigPath, disk, jsonUtil);
+            var modInfo = new ModInfo(modName, assetConfig, modConfig, modMapping, path);
 
             // Load dependencies
             foreach (var dependency in modConfig.Dependencies)
             {
-                LoadMod(dataDir, dependency, disk);
+                LoadMod(dataDir, dependency);
                 if (!_mods.TryGetValue(dependency, out var dependencyInfo))
                 {
-                    Raise(new LogEvent(LogEvent.Level.Error, $"Dependency {dependency} of mod {modName} could not be loaded, skipping load of {modName}"));
+                    Error($"Dependency {dependency} of mod {modName} could not be loaded, skipping load of {modName}");
                     return;
                 }
 
@@ -125,9 +128,9 @@ namespace UAlbion.Game.Assets
             modConfig.AssetPath ??= path;
             var extraPaths = new Dictionary<string, string> { ["MOD"] = modConfig.AssetPath };
             assetConfig.PopulateAssetIds(
-                AssetMapping.Global,
+                jsonUtil,
                 x => _assetLocator.GetSubItemRangesForFile(x, extraPaths),
-                x => disk.ReadAllText(generalConfig.ResolvePath(x, extraPaths)));
+                x => disk.ReadAllBytes(generalConfig.ResolvePath(x, extraPaths)));
             _mods.Add(modName, modInfo);
             _modsInReverseDependencyOrder.Add(modInfo);
         }
@@ -171,7 +174,7 @@ namespace UAlbion.Game.Assets
                 if (CoreUtil.IsCriticalException(e))
                     throw;
 
-                Raise(new LogEvent(LogEvent.Level.Error, $"Could not load asset {id}: {e}"));
+                Error($"Could not load asset {id}: {e}");
                 return null;
             }
         }
@@ -233,7 +236,7 @@ namespace UAlbion.Game.Assets
                             var registry = Resolve<IAssetPostProcessorRegistry>();
                             var postProcessor = registry.GetPostProcessor(info.File.Post);
                             if (postProcessor != null)
-                                modAsset = postProcessor.Process(modAsset, info, Resolve<ICoreFactory>());
+                                modAsset = postProcessor.Process(modAsset, info);
                         }
 
                         asset = modAsset;
@@ -245,7 +248,7 @@ namespace UAlbion.Game.Assets
             if (asset == null)
                 throw new AssetNotFoundException($"Could not load asset for {id}");
 
-            while (patches != null && patches.Count > 0)
+            while (patches is { Count: > 0 })
                 asset = patches.Pop().Apply(asset);
 
             return asset;
@@ -253,7 +256,18 @@ namespace UAlbion.Game.Assets
 
         public SavedGame LoadSavedGame(string path)
         {
-            throw new NotImplementedException();
+            var disk = Resolve<IFileSystem>();
+            if (!disk.FileExists(path))
+            {
+                Error($"Could not find save game file \"{path}\"");
+                return null;
+            }
+
+            using var stream = disk.OpenRead(path);
+            using var br = new BinaryReader(stream);
+            using var s = new AlbionReader(br, stream.Length);
+            var spellManager = Resolve<ISpellManager>();
+            return SavedGame.Serdes(null, AssetMapping.Global, s, spellManager);
         }
 
         public void SaveAssets(
@@ -270,13 +284,14 @@ namespace UAlbion.Game.Assets
             var loaderRegistry = Resolve<IAssetLoaderRegistry>();
             var containerRegistry = Resolve<IContainerRegistry>();
             var disk = Resolve<IFileSystem>();
-            var target = _modsInReverseDependencyOrder.Last();
+            var jsonUtil = Resolve<IJsonUtil>();
+            var target = _modsInReverseDependencyOrder.First();
 
             // Add any missing ids
-            Raise(new LogEvent(LogEvent.Level.Info, "Populating destination asset info..."));
+            Info("Populating destination asset info...");
             var extraPaths = new Dictionary<string, string> { ["MOD"] = target.AssetPath };
             target.AssetConfig.PopulateAssetIds(
-                AssetMapping.Global,
+                jsonUtil,
                 file =>
                 {
                     // Don't need to resolve the filename as we're not actually using the container - we just want to find the type.
@@ -298,12 +313,12 @@ namespace UAlbion.Game.Assets
                     if (container is XldContainer)
                         idsInRange = idsInRange.Where(x => x < 100);
 
-                    int maxSubId = file.Get(AssetProperty.Max, -1);
-                    if (maxSubId != -1)
-                        idsInRange = idsInRange.Where(x => x <= maxSubId);
+                    int? maxSubId = file.Max;
+                    if (maxSubId.HasValue)
+                        idsInRange = idsInRange.Where(x => x <= maxSubId.Value);
 
                     return FormatUtil.SortedIntsToRanges(idsInRange);
-                }, x => disk.ReadAllText(config.ResolvePath(x, extraPaths)));
+                }, x => disk.ReadAllBytes(config.ResolvePath(x, extraPaths)));
 
             Resolve<IGeneralConfig>().SetPath("MOD", target.AssetPath);
             foreach (var file in target.AssetConfig.Files.Values)
@@ -328,7 +343,7 @@ namespace UAlbion.Game.Assets
 
                     if (notify)
                     {
-                        Raise(new LogEvent(LogEvent.Level.Info, $"Saving {file.Filename}..."));
+                        Info($"Saving {file.Filename}...");
                         notify = false;
                     }
 
@@ -339,14 +354,14 @@ namespace UAlbion.Game.Assets
                     using var ms = new MemoryStream();
                     using var bw = new BinaryWriter(ms);
                     using var s = new AlbionWriter(bw);
-                    loader.Serdes(asset, assetInfo, target.Mapping, s);
+                    loader.Serdes(asset, assetInfo, target.Mapping, s, jsonUtil);
 
                     ms.Position = 0;
                     assets.Add((assetInfo, ms.ToArray()));
                 }
 
                 if (assets.Count > 0)
-                    container.Write(path, assets, disk);
+                    container.Write(path, assets, disk, jsonUtil);
             }
         }
     }

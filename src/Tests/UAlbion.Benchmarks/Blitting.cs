@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Numerics;
 using BenchmarkDotNet.Attributes;
+using UAlbion.Api.Visual;
 using UAlbion.Config;
 using UAlbion.Core.Textures;
 using UAlbion.TestCommon;
@@ -12,39 +13,36 @@ namespace UAlbion.Benchmarks
     {
         const int N = 1000;
         const int Dimensions = 256;
-        static readonly MockPaletteManager _paletteManager = new MockPaletteManager();
-        static readonly MockTexture _black = new MockTexture(AssetId.None, 
+        static readonly IPalette _palette = new MockPalette();
+        static readonly ITexture _black = new SimpleTexture<byte>(AssetId.None, 
                 "Black",
                 Dimensions,
                 Dimensions,
                 Enumerable.Repeat((byte)0, Dimensions * Dimensions).ToArray(),
-                new[] { new SubImage(Vector2.Zero, Vector2.One * Dimensions, Vector2.One * Dimensions, 0) });
+                new[] { new Region(Vector2.Zero, Vector2.One * Dimensions, Vector2.One * Dimensions, 0) });
 
-        static readonly MockTexture _white = new MockTexture(AssetId.None, 
+        static readonly ITexture _white = new SimpleTexture<byte>(AssetId.None, 
                 "Black",
                 Dimensions,
                 Dimensions,
                 Enumerable.Repeat((byte)255, Dimensions * Dimensions).ToArray(),
-                new[] { new SubImage(Vector2.Zero, Vector2.One * Dimensions, Vector2.One * Dimensions, 0) });
+                new[] { new Region(Vector2.Zero, Vector2.One * Dimensions, Vector2.One * Dimensions, 0) });
 
-        readonly MockMultiTexture _opaqueUniform = new MockMultiTexture(AssetId.None, "OpaqueUniform", _paletteManager);
-        readonly MockMultiTexture _opaqueRandom = new MockMultiTexture(AssetId.None, "OpaqueRandom", _paletteManager);
-        readonly MockMultiTexture _transparentUniform = new MockMultiTexture(AssetId.None, "TransparentUniform", _paletteManager);
-        readonly MockMultiTexture _transparentRandom = new MockMultiTexture(AssetId.None, "TransparentRandom", _paletteManager);
+        readonly CompositedTexture _opaqueUniform = new(AssetId.None, "OpaqueUniform", _palette);
+        readonly CompositedTexture _opaqueRandom = new(AssetId.None, "OpaqueRandom", _palette);
+        readonly CompositedTexture _transparentUniform = new(AssetId.None, "TransparentUniform", _palette);
+        readonly CompositedTexture _transparentRandom = new(AssetId.None, "TransparentRandom", _palette);
         public Blitting()
         {
-            _paletteManager.Palette = new MockPalette();
-            _paletteManager.PaletteTexture = new MockPaletteTexture(AssetId.None, "Mock", _paletteManager.Palette.GetPaletteAtTime(0));
-
             var r = new Random();
             var randomBuffer = new byte[Dimensions * Dimensions];
             r.NextBytes(randomBuffer);
-            var random = new MockTexture(AssetId.None, 
+            var random = new SimpleTexture<byte>(AssetId.None, 
                 "Random",
                 Dimensions,
                 Dimensions,
                 randomBuffer,
-                new[] { new SubImage(Vector2.Zero, Vector2.One * Dimensions, Vector2.One * Dimensions, 0) });
+                new[] { new Region(Vector2.Zero, Vector2.One * Dimensions, Vector2.One * Dimensions, 0) });
 
             _opaqueRandom.AddTexture(1, _black, 0, 0, null, false);
             _opaqueRandom.AddTexture(1, random, Dimensions / 4, Dimensions / 4, null, false, Dimensions / 2, Dimensions / 2);

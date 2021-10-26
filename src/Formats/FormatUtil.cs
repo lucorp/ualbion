@@ -21,8 +21,7 @@ namespace UAlbion.Formats
             Justification = "Encoding.GetEncoding must happen after Encoding.RegisterProvider")]
         static FormatUtil()
         {
-            Encoding.RegisterProvider(CodePagesEncodingProvider
-                .Instance); // Required for code page 850 support in .NET Core
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); // Required for code page 850 support in .NET Core
             PerfTracker.StartupEvent("Registered encodings");
             AlbionEncoding = Encoding.GetEncoding(850);
         }
@@ -30,13 +29,13 @@ namespace UAlbion.Formats
         public static string BytesTo850String(byte[] bytes) =>
             AlbionEncoding
                 .GetString(bytes)
-                .Replace("×", "ß")
+                .Replace('×', 'ß')
                 .TrimEnd((char)0);
 
         public static byte[] BytesFrom850String(string str)
         {
             if (str == null) throw new ArgumentNullException(nameof(str));
-            return AlbionEncoding.GetBytes(str.Replace("ß", "×"));
+            return AlbionEncoding.GetBytes(str.Replace('ß', '×'));
         }
 
         public static string WordWrap(string s, int maxLine)
@@ -152,7 +151,7 @@ namespace UAlbion.Formats
         static byte HexCharToByte(char c)
         {
             if (c >= 0 && c <= 9) return (byte)(c - '0');
-            if (c >= 'A' && c <= 'F') return (byte)(c - 'A');
+            if (c is >= 'A' and <= 'F') return (byte)(c - 'A');
             throw new FormatException($"Invalid character '{c}' in hex string");
         }
 
@@ -228,27 +227,13 @@ namespace UAlbion.Formats
             {
                 QueryOperation.IsTrue => value != 0,
                 QueryOperation.NotEqual => value != immediate,
-                QueryOperation.OpUnk2 => value == immediate,
+                QueryOperation.LessThanOrEqual => value <= immediate,
                 QueryOperation.Equals => value == immediate,
                 QueryOperation.GreaterThanOrEqual => value >= immediate,
                 QueryOperation.GreaterThan => value > immediate,
                 QueryOperation.OpUnk6 => value == immediate,
                 _ => true
             };
-
-        public static void Blit(ReadOnlySpan<byte> from, Span<byte> to, int width, int height, int fromStride,
-            int toStride)
-        {
-            int srcIndex = 0;
-            int destIndex = 0;
-            for (int i = 0; i < height; i++)
-            {
-                var row = from.Slice(srcIndex, width);
-                row.CopyTo(to.Slice(destIndex));
-                srcIndex += fromStride;
-                destIndex += toStride;
-            }
-        }
 
         public static byte[] BytesFromTextWriter(Action<TextWriter> func)
         {

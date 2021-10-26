@@ -1,19 +1,14 @@
 ﻿using System;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 
 namespace UAlbion.Formats.Assets
 {
-    [JsonConverter(typeof(StringEnumConverter))]
     public enum ItemSlotId : byte // Enum values that are more convenient for in-memory use (item slot array accessing etc)
     {
         // Regular slots (only the first is named as they're generally accessed numerically)
         Slot0 = 0,
-        NormalSlotCount = 24,
 
         Gold = 24,
         Rations = 25,
-        ChestSlotCount = 26,
 
         // Body parts
         Neck = 26,
@@ -28,6 +23,8 @@ namespace UAlbion.Formats.Assets
         RightHandOrTail,
         FullSlotCount,
 
+        NormalSlotCount = 24,
+        ChestSlotCount = 26,
         // Dummy slot id used for the character's full body picture as a
         // background on the middle inventory pane.  It can't hold anything,
         // but it can be a target for dropping items, in which case they'll

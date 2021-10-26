@@ -24,7 +24,7 @@ namespace UAlbion.Game.Tests
         {
             AssetMapping.GlobalIsThreadLocal = true;
             AssetMapping.Global.Clear()
-                .RegisterAssetType(typeof(Base.PartyMember), AssetType.PartyMember)
+                .RegisterAssetType(typeof(Base.PartyMember), AssetType.Party)
                 .RegisterAssetType(typeof(Base.CoreSprite), AssetType.CoreGraphics)
                 .RegisterAssetType(typeof(Base.Item), AssetType.Item)
                 ;
@@ -47,7 +47,7 @@ namespace UAlbion.Game.Tests
 
             var exchange = new EventExchange(new LogExchange());
             _im = new InventoryManager(x => inventories[x]);
-            var wm = new WindowManager { Window = new MockWindow(1920, 1080) };
+            var wm = new WindowManager { Resolution = (1920, 1080) };
             var cm = new MockCursorManager { Position = new Vector2(1, 1) };
 
             exchange

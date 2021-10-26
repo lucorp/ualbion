@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Text.Json.Serialization;
 using SerdesNet;
 using UAlbion.Api;
 using UAlbion.Config;
@@ -24,16 +25,16 @@ namespace UAlbion.Formats.Assets
         public CharacterSheet(CharacterId id)
         {
             Id = id;
-            if (id.Type == AssetType.PartyMember || id.Type == AssetType.Monster)
+            if (id.Type == AssetType.Party || id.Type == AssetType.Monster)
                 Inventory = new Inventory(new InventoryId(id));
         }
 
         // Grouped
-        public MagicSkills Magic { get; set; } = new MagicSkills();
-        public Inventory Inventory { get; set; }
-        public CharacterAttributes Attributes { get; set; } = new CharacterAttributes();
-        public CharacterSkills Skills { get; set; } = new CharacterSkills();
-        public CombatAttributes Combat { get; set; } = new CombatAttributes();
+        [JsonInclude] public MagicSkills Magic { get; init; } = new();
+        [JsonInclude] public Inventory Inventory { get; init; }
+        [JsonInclude] public CharacterAttributes Attributes { get; init; } = new();
+        [JsonInclude] public CharacterSkills Skills { get; init; } = new();
+        [JsonInclude] public CombatAttributes Combat { get; init; } = new();
         IMagicSkills ICharacterSheet.Magic => Magic;
         IInventory ICharacterSheet.Inventory => Inventory;
         ICharacterAttributes ICharacterSheet.Attributes => Attributes;
@@ -48,7 +49,7 @@ namespace UAlbion.Formats.Assets
             _ => $"{Id} UNKNOWN TYPE {Type}" };
 
         // Names
-        public CharacterId Id { get; }
+        [JsonInclude] public CharacterId Id { get; private set; }
         public string EnglishName { get; set; }
         public string GermanName { get; set; }
         public string FrenchName { get; set; }
@@ -132,9 +133,11 @@ namespace UAlbion.Formats.Assets
         public byte[] UnkMonster { get; set; } // 472 bytes more than an NPC
         // ReSharper restore InconsistentNaming
 
-        public static CharacterSheet Serdes(CharacterId id, CharacterSheet sheet, AssetMapping mapping, ISerializer s)
+        public static CharacterSheet Serdes(CharacterId id, CharacterSheet sheet, AssetMapping mapping, ISerializer s, ISpellManager spellManager)
         {
+            if (mapping == null) throw new ArgumentNullException(nameof(mapping));
             if (s == null) throw new ArgumentNullException(nameof(s));
+            if (spellManager == null) throw new ArgumentNullException(nameof(spellManager));
             var initialOffset = s.Offset;
 
             sheet ??= new CharacterSheet(id);
@@ -178,8 +181,8 @@ namespace UAlbion.Formats.Assets
             ushort rations = s.UInt16("Rations", sheet.Inventory?.Rations.Amount ?? 0);
             if (sheet.Inventory != null)
             {
-                sheet.Inventory.Gold.Item = new Gold();
-                sheet.Inventory.Rations.Item = new Rations();
+                sheet.Inventory.Gold.Item = Gold.Instance;
+                sheet.Inventory.Rations.Item = Rations.Instance;
                 sheet.Inventory.Gold.Amount = gold;
                 sheet.Inventory.Rations.Amount = rations;
             }
@@ -232,7 +235,7 @@ namespace UAlbion.Formats.Assets
 
             sheet.Age = s.UInt16(nameof(sheet.Age), sheet.Age);
             sheet.Unknown6C = s.UInt8(nameof(sheet.Unknown6C), sheet.Unknown6C);
-                s.RepeatU8("UnknownBlock6D", 0, 13);
+            s.RepeatU8("UnknownBlock6D", 0, 13);
             sheet.Skills.CloseCombat = s.UInt16(nameof(sheet.Skills.CloseCombat), sheet.Skills.CloseCombat);
             sheet.Skills.CloseCombatMax = s.UInt16(nameof(sheet.Skills.CloseCombatMax), sheet.Skills.CloseCombatMax);
             sheet.Unknown7E = s.UInt16(nameof(sheet.Unknown7E), sheet.Unknown7E);
@@ -271,18 +274,23 @@ namespace UAlbion.Formats.Assets
 
             byte[] knownSpellBytes = null;
             byte[] spellStrengthBytes = null;
+
             if (s.IsWriting())
             {
-                var activeSpellIds = sheet.Magic.SpellStrengths.Keys;
                 var knownSpells = new uint[SpellSchoolCount];
-                var spellStrengths = new ushort[MaxSpellsPerSchool * SpellSchoolCount];
-                foreach (var spellId in activeSpellIds)
+                foreach (var spellId in sheet.Magic.KnownSpells)
                 {
-                    uint schoolId = (uint)spellId.Id / 256;
-                    int offset = spellId.Id % 256;
-                    if (sheet.Magic.SpellStrengths[spellId].Item1)
-                        knownSpells[schoolId] |= 1U << offset;
-                    spellStrengths[schoolId * MaxSpellsPerSchool + offset] = sheet.Magic.SpellStrengths[spellId].Item2;
+                    var spell = spellManager.GetSpellOrDefault(spellId);
+                    if (spell == null) continue;
+                    knownSpells[(int)spell.Class] |= 1U << spell.OffsetInClass;
+                }
+
+                var spellStrengths = new ushort[MaxSpellsPerSchool * SpellSchoolCount];
+                foreach (var kvp in sheet.Magic.SpellStrengths)
+                {
+                    var spell = spellManager.GetSpellOrDefault(kvp.Key);
+                    if (spell == null) continue;
+                    spellStrengths[(int)spell.Class * MaxSpellsPerSchool + spell.OffsetInClass] = kvp.Value;
                 }
 
                 knownSpellBytes = knownSpells.Select(BitConverter.GetBytes).SelectMany(x => x).ToArray();
@@ -309,25 +317,20 @@ namespace UAlbion.Formats.Assets
                 for (int school = 0; school < SpellSchoolCount; school++)
                 {
                     byte knownSpells = 0;
-                    for (int offset = 0; offset < MaxSpellsPerSchool; offset++)
+                    for (byte offset = 0; offset < MaxSpellsPerSchool; offset++)
                     {
                         if (offset % 8 == 0)
                             knownSpells = knownSpellBytes[school * 4 + offset / 8];
                         int i = school * MaxSpellsPerSchool + offset;
                         bool isKnown = (knownSpells & (1 << (offset % 8))) != 0;
                         ushort spellStrength = BitConverter.ToUInt16(spellStrengthBytes, i * sizeof(ushort));
-                        var spellId = new SpellId(AssetType.Spell, school * 256 + offset);
-
-                        if (spellStrength > 0)
-                            sheet.Magic.SpellStrengths[spellId] = (false, spellStrength);
+                        var spellId = spellManager.GetSpellId((SpellClass)school, offset);
 
                         if (isKnown)
-                        {
-                            SpellId correctedSpellId = spellId; // TODO: is this still needed?
-                            if (!sheet.Magic.SpellStrengths.TryGetValue(correctedSpellId, out var current))
-                                current = (false, 0);
-                            sheet.Magic.SpellStrengths[correctedSpellId] = (true, current.Item2);
-                        }
+                            sheet.Magic.KnownSpells.Add(spellId);
+
+                        if (spellStrength > 0)
+                            sheet.Magic.SpellStrengths[spellId] = spellStrength;
                     }
                 }
             }
@@ -335,9 +338,13 @@ namespace UAlbion.Formats.Assets
             if ((s.Flags & SerializerFlags.Comments) != 0 && sheet.Magic.SpellStrengths.Count > 0)
             {
                 s.Comment("Spells:");
-                foreach (var spell in sheet.Magic.SpellStrengths.OrderBy(x => x.Key))
+                for (int i = 0; i < MaxSpellsPerSchool * SpellSchoolCount; i++)
                 {
-                    s.Comment($"{spell.Key}: {spell.Value.Item2}{(spell.Value.Item1 ? " (Learnt)" : "")}");
+                    var spellId = new SpellId(AssetType.Spell, i + 1);
+                    bool known = sheet.Magic.KnownSpells.Contains(spellId);
+                    sheet.Magic.SpellStrengths.TryGetValue(spellId, out var strength);
+                    if (known || strength > 0)
+                        s.Comment($"{spellId}: {strength}{(known ? " (Learnt)" : "")}");
                 }
             }
 

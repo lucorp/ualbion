@@ -1,11 +1,7 @@
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-
 // ReSharper disable InconsistentNaming
 // ReSharper disable UnusedMember.Global
 namespace UAlbion.Base
 {
-    [JsonConverter(typeof(StringEnumConverter))]
     public enum FullBodyPicture : byte
     {
         Tom = 1,
@@ -17,6 +13,8 @@ namespace UAlbion.Base
         Joe = 7,
         Unknown8 = 8,
         Khunag = 9,
-        Siobhan = 10
+        Siobhan = 10,
+        Invalid11 = 11,
+        Invalid12 = 12,
     }
 }

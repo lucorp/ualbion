@@ -1,6 +1,5 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
 using UAlbion.Api;
 using UAlbion.Core;
 using UAlbion.Core.Events;
@@ -40,32 +39,58 @@ namespace UAlbion.Game.Veldrid.Input
 
     public class MouseLookMouseMode : Component
     {
+        bool _firstEvent;
+
         public MouseLookMouseMode()
         {
             On<InputEvent>(OnInput);
-            On<PostUpdateEvent>(e =>
+            On<FocusGainedEvent>(_ => AcquireMouse());
+            On<FocusLostEvent>(_ => ReleaseMouse());
+            On<PostGameUpdateEvent>(e =>
             {
-                var windowState = Resolve<IWindowManager>();
-                Raise(new SetCursorPositionEvent(windowState.PixelWidth / 2, windowState.PixelHeight / 2));
+                //var windowState = Resolve<IWindowManager>();
+                //Raise(new SetCursorPositionEvent(windowState.PixelWidth / 2, windowState.PixelHeight / 2));
             });
         }
 
         protected override void Subscribed()
         {
             Raise(new SetCursorEvent(Base.CoreSprite.CursorCrossUnselected));
+            AcquireMouse();
+            _firstEvent = true;
+        }
+
+        protected override void Unsubscribed() => ReleaseMouse();
+
+        void AcquireMouse()
+        {
+            Raise(new SetRelativeMouseModeEvent(true));
+            Raise(new ConfineMouseToWindowEvent(true));
+        }
+
+        void ReleaseMouse()
+        {
+            Raise(new ConfineMouseToWindowEvent(false));
+            Raise(new SetRelativeMouseModeEvent(false));
         }
 
         void OnInput(InputEvent e)
         {
-            var windowState = Resolve<IWindowManager>();
-            var delta = e.Snapshot.MousePosition - new Vector2((int)(windowState.PixelWidth / 2), (int)(windowState.PixelHeight / 2));
+            if (_firstEvent) // Ignore the first event to prevent the view jumping about due to the prior cursor position
+            {
+                _firstEvent = false;
+                return;
+            }
+
+            // var windowState = Resolve<IWindowManager>();
+            // var delta = e.Snapshot.MousePosition - new Vector2((int)(windowState.PixelWidth / 2), (int)(windowState.PixelHeight / 2));
             var hits = Resolve<ISelectionManager>()?.CastRayFromScreenSpace(e.Snapshot.MousePosition, true);
 
-            if (delta.LengthSquared() > float.Epsilon)
+            if (e.MouseDelta.LengthSquared() > float.Epsilon)
             {
                 var config = Resolve<GameConfig>();
                 var sensitivity = config.UI.MouseLookSensitivity / -1000;
-                Raise(new CameraRotateEvent(delta.X * sensitivity, delta.Y * sensitivity));
+                Raise(new CameraRotateEvent(e.MouseDelta.X * sensitivity, e.MouseDelta.Y * sensitivity));
             }
 
             // Clicks are targeted, releases are broadcast. e.g. if you click and drag a slider and move outside

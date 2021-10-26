@@ -23,10 +23,9 @@ namespace UAlbion.Game.Gui.Controls
 
         void Rebuild(int width, int height, DrawLayer order)
         {
-            var shadowSubImage = new SubImage(Vector2.Zero, Vector2.Zero, Vector2.One, 0);
+            var shadowSubImage = new Region(Vector2.Zero, Vector2.Zero, Vector2.One, 0);
             var window = Resolve<IWindowManager>();
             var sm = Resolve<ISpriteManager>();
-            var factory = Resolve<ICoreFactory>();
 
             { // Check if we need to rebuild
                 var normSize = window.UiToNormRelative(width, height);
@@ -38,27 +37,33 @@ namespace UAlbion.Game.Gui.Controls
             }
 
             var assets = Resolve<IAssetManager>();
-            var multi = factory.CreateMultiTexture(AssetId.None, $"Background {width}x{height}",
-                new DummyPaletteManager(assets.LoadPalette(Base.Palette.Inventory)));
+            var multi = new CompositedTexture(AssetId.None, $"Background {width}x{height}", assets.LoadPalette(Base.Palette.Inventory));
 
             // Background
             var background = assets.LoadTexture(Base.CoreSprite.UiBackground);
             multi.AddTexture(1, background, 0, 0, 0, true, width, height);
 
-            var subImage = (SubImage)multi.GetSubImage(multi.GetSubImageAtTime(1, 0));
+            var subImage = multi.Regions[multi.GetSubImageAtTime(1, 0, false)];
             var normalisedSize = window.UiToNormRelative(subImage.Size);
 
-            var key = new SpriteKey(multi, order, SpriteKeyFlags.NoTransform);
+            var key = new SpriteKey(multi, SpriteSampler.Point, order, SpriteKeyFlags.NoTransform);
             _sprite?.Dispose();
 
             var lease = sm.Borrow(key, 2, this);
             var flags = SpriteFlags.None.SetOpacity(0.5f);
-            var instances = lease.Access();
 
             var shadowPosition = new Vector3(window.UiToNormRelative(10, 10), 0);
             var shadowSize = window.UiToNormRelative(subImage.Size - new Vector2(10, 10));
-            instances[0] = SpriteInstanceData.TopLeft(shadowPosition, shadowSize, shadowSubImage, flags); // Drop shadow
-            instances[1] = SpriteInstanceData.TopLeft(Vector3.Zero, normalisedSize, subImage, 0); // DialogFrame
+
+            bool lockWasTaken = false;
+            var instances = lease.Lock(ref lockWasTaken);
+            try
+            {
+                instances[0] = new SpriteInstanceData(shadowPosition, shadowSize, shadowSubImage, SpriteFlags.TopLeft | flags); // Drop shadow
+                instances[1] = new SpriteInstanceData(Vector3.Zero, normalisedSize, subImage, SpriteFlags.TopLeft); // DialogFrame
+            }
+            finally { lease.Unlock(lockWasTaken); }
+
             _sprite = new PositionedSpriteBatch(lease, normalisedSize);
         }
 

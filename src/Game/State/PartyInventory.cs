@@ -5,6 +5,7 @@ using System.Linq;
 using System.Numerics;
 using UAlbion.Config;
 using UAlbion.Core;
+using UAlbion.Core.Visual;
 using UAlbion.Formats.Assets;
 using UAlbion.Formats.MapEvents;
 using UAlbion.Game.Events.Inventory;
@@ -83,8 +84,8 @@ namespace UAlbion.Game.State
         IContents ContentsFromItemId(ItemId itemId) =>
             itemId.Type switch
             {
-                AssetType.Gold => new Gold(),
-                AssetType.Rations => new Rations(),
+                AssetType.Gold => Gold.Instance,
+                AssetType.Rations => Rations.Instance,
                 _ => Resolve<IAssetManager>().LoadItem(itemId),
             };
 
@@ -154,21 +155,21 @@ namespace UAlbion.Game.State
 
         void MapItemTransition(ItemId itemId, PartyMemberId recipientId)
         {
-            var context = Resolve<IEventManager>().Context;
+            var context = TryResolve<IEventManager>()?.Context;
             if (context?.Source.AssetId.Type != AssetType.Map)
                 return;
 
-            var scene = Resolve<ISceneManager>()?.ActiveScene;
-            var map = Resolve<IMapManager>()?.Current;
-            var window = Resolve<IWindowManager>();
-            var party = Resolve<IParty>();
+            var map = TryResolve<IMapManager>()?.Current;
+            var window = TryResolve<IWindowManager>();
+            var party = TryResolve<IParty>();
+            var camera = TryResolve<ICamera>();
 
-            if (scene == null || map == null || window == null || party == null)
+            if (map == null || window == null || party == null || camera == null)
                 return;
 
             var player = party[recipientId];
             var worldPosition = new Vector3(context.Source.X, context.Source.Y, 0) * map.TileSize;
-            var normPosition = scene.Camera.ProjectWorldToNorm(worldPosition);
+            var normPosition = camera.ProjectWorldToNorm(worldPosition);
             var uiPosition = window.NormToUi(new Vector2(normPosition.X, normPosition.Y));
 
             Raise(new LinearItemTransitionEvent(itemId,

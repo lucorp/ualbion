@@ -9,10 +9,14 @@ namespace UAlbion.Game.Scenes
     public interface IInventoryScene : IScene { }
 
     [Scene(SceneId.Inventory)]
-    public class InventoryScene : Scene, IInventoryScene
+    public class InventoryScene : Container, IInventoryScene
     {
         bool _clockWasRunning;
-        public InventoryScene() : base("Inventory", new OrthographicCamera()) { }
+
+        public InventoryScene() : base("Inventory")
+        {
+            AttachChild(new OrthographicCamera());
+        }
 
         protected override void Subscribed()
         {

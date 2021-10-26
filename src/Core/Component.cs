@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using UAlbion.Api;
 
@@ -22,10 +23,11 @@ namespace UAlbion.Core
     {
         public static bool TraceAttachment { get; set; }
         static readonly Action<object> DummyContinuation = _ => { };
+        static readonly List<IComponent> EmptyChildren = new();
         static int _nesting;
         static int _nextId;
-        readonly IDictionary<Type, Handler> _handlers = new Dictionary<Type, Handler>();
-        readonly List<IComponent> _children = new List<IComponent>();
+        List<IComponent> _children;
+        Dictionary<Type, Handler> _handlers;
         bool _isActive = true; // If false, then this component will not be attached to the exchange even if its parent is.
         protected Component() => ComponentId = Interlocked.Increment(ref _nextId);
 
@@ -56,7 +58,7 @@ namespace UAlbion.Core
         /// The primary purpose of children is ensuring that the children are also attached and
         /// detached when the parent component is.
         /// </summary>
-        protected IReadOnlyList<IComponent> Children => _children;
+        protected IReadOnlyList<IComponent> Children => _children ?? EmptyChildren;
 
         /// <summary>
         /// Resolve the currently active object that provides the given interface.
@@ -79,7 +81,7 @@ namespace UAlbion.Core
         /// distribute it to all components that have registered a handler.
         /// </summary>
         /// <param name="event">The event to raise</param>
-        protected void Raise(IEvent @event) => Exchange?.Raise(@event, this);
+        protected void Raise<T>(T @event) where T : IEvent => Exchange?.Raise(@event, this);
 
         /// <summary>
         /// Raise an event via the currently subscribed event exchange (if subscribed), and
@@ -135,6 +137,7 @@ namespace UAlbion.Core
         /// <param name="callback">The function to call when the event is raised</param>
         protected void On<T>(Action<T> callback) where T : IEvent
         {
+            _handlers ??= new Dictionary<Type, Handler>();
             if (_handlers.ContainsKey(typeof(T)))
                 return;
 
@@ -152,6 +155,7 @@ namespace UAlbion.Core
         /// <param name="callback">The function to call when the event is raised</param>
         protected void OnAsync<T>(Func<T, Action, bool> callback) where T : IAsyncEvent
         {
+            _handlers ??= new Dictionary<Type, Handler>();
             if (_handlers.ContainsKey(typeof(T)))
                 return;
 
@@ -170,6 +174,7 @@ namespace UAlbion.Core
         /// <param name="callback">The function to call when the event is raised</param>
         protected void OnAsync<TEvent, TReturn>(Func<TEvent, Action<TReturn>, bool> callback) where TEvent : IAsyncEvent<TReturn>
         {
+            _handlers ??= new Dictionary<Type, Handler>();
             if (_handlers.ContainsKey(typeof(TEvent)))
                 return;
 
@@ -185,7 +190,7 @@ namespace UAlbion.Core
         /// <typeparam name="T">The event type which should no longer be handled by this component.</typeparam>
         protected void Off<T>()
         {
-            if (_handlers.Remove(typeof(T)) && IsSubscribed)
+            if (_handlers?.Remove(typeof(T)) == true && IsSubscribed)
                 Exchange.Unsubscribe<T>(this);
         }
 
@@ -236,8 +241,9 @@ namespace UAlbion.Core
             _nesting--;
 
             // exchange.Subscribe(null, this); // Ensure we always get added to the subscriber list, even if this component only uses subscription notifications.
-            foreach (var kvp in _handlers)
-                exchange.Subscribe(kvp.Value);
+            if (_handlers != null)
+                foreach (var kvp in _handlers)
+                    exchange.Subscribe(kvp.Value);
             IsSubscribed = true;
             Subscribed();
         }
@@ -297,6 +303,7 @@ namespace UAlbion.Core
             if (_isActive) // Children will be attached when this component is made active.
                 Exchange?.Attach(child);
 
+            _children ??= new List<IComponent>();
             _children.Add(child);
             if (child is Component component)
                 component.Parent = this;
@@ -311,6 +318,7 @@ namespace UAlbion.Core
         {
             for (int i = Children.Count - 1; i >= 0; i--)
                 Children[i].Remove(); // O(n²)… refactor if it ever becomes a problem.
+            _children = null;
         }
 
         /// <summary>
@@ -321,6 +329,7 @@ namespace UAlbion.Core
         protected void RemoveChild(IComponent child)
         {
             if (child == null) throw new ArgumentNullException(nameof(child));
+            if (_children == null) return;
             int index = _children.IndexOf(child);
             if (index == -1) return;
             if (child is Component c)
@@ -328,6 +337,8 @@ namespace UAlbion.Core
 
             child.Remove();
             _children.RemoveAt(index);
+            if (_children.Count == 0)
+                _children = null;
         }
 
         /// <summary>
@@ -343,9 +354,21 @@ namespace UAlbion.Core
             if (sender == this || !IsSubscribed || Exchange == null)
                 return;
 
-            if (_handlers.TryGetValue(@event.GetType(), out var handler))
+            if (_handlers != null && _handlers.TryGetValue(@event.GetType(), out var handler))
                 handler.Invoke(@event, DummyContinuation);
         }
+
+        // Logging helpers
+        protected void Verbose(string msg, [CallerFilePath] string file = null, [CallerMemberName] string member = null, [CallerLineNumber] int line = 0)
+            => Raise(new LogEvent(LogLevel.Verbose, msg, file, member, line));
+        protected void Info(string msg, [CallerFilePath] string file = null, [CallerMemberName] string member = null, [CallerLineNumber] int line = 0)
+            => Raise(new LogEvent(LogLevel.Info, msg, file, member, line));
+        protected void Warn(string msg, [CallerFilePath] string file = null, [CallerMemberName] string member = null, [CallerLineNumber] int line = 0)
+            => Raise(new LogEvent(LogLevel.Warning, msg, file, member, line));
+        protected void Error(string msg, [CallerFilePath] string file = null, [CallerMemberName] string member = null, [CallerLineNumber] int line = 0)
+            => Raise(new LogEvent(LogLevel.Error, msg, file, member, line));
+        protected void Critical(string msg, [CallerFilePath] string file = null, [CallerMemberName] string member = null, [CallerLineNumber] int line = 0)
+            => Raise(new LogEvent(LogLevel.Critical, msg, file, member, line));
     }
 }
 #pragma warning restore CA1030 // Use events where appropriate

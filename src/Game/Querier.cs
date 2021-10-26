@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Linq;
-using UAlbion.Api;
 using UAlbion.Config;
 using UAlbion.Core;
 using UAlbion.Formats;
@@ -14,7 +13,7 @@ namespace UAlbion.Game
 {
     public class Querier : Component // : ServiceComponent<IQuerier>, IQuerier
     {
-        readonly Random _random = new Random();
+        readonly Random _random = new();
 
         static Func<T, Action<bool>, bool> Do<T>(Func<T, bool> func) =>
             (e, continuation) =>
@@ -41,22 +40,22 @@ namespace UAlbion.Game
 
             OnAsync(Do<QueryNpcActiveEvent>(q =>
             {
-                Raise(new LogEvent(LogEvent.Level.Error, "TODO: Query NpcActive"));
+                Error("TODO: Query NpcActive");
                 return true;
             }));
             OnAsync(Do<QueryConsciousEvent> (q =>
             {
-                Raise(new LogEvent(LogEvent.Level.Error, "TODO: Query Party member conscious"));
+                Error("TODO: Query Party member conscious");
                 return true;
             }));
             OnAsync(Do<QueryEventUsedEvent> (q =>
             {
-                Raise(new LogEvent(LogEvent.Level.Error, "TODO: Query event already used"));
+                Error("TODO: Query event already used");
                 return false;
             }));
             OnAsync(Do<QueryDemoVersionEvent> (q =>
             {
-                Raise(new LogEvent(LogEvent.Level.Error, "TODO: Query is demo"));
+                Error("TODO: Query is demo");
                 return false;
             }));
 
@@ -70,15 +69,26 @@ namespace UAlbion.Game
             });
 
             OnAsync<PromptPlayerNumericEvent, bool>((q, continuation) =>
-           {
-               var context = Resolve<IEventManager>().Context;
-               if (context?.Source == null)
-                   return false;
+            {
+                var context = Resolve<IEventManager>().Context;
+                if (context?.Source == null)
+                    return false;
 
-               return RaiseAsync(
-                  new NumericPromptEvent((TextId)Base.SystemText.MsgBox_EnterNumber, 0, 9999),
-                  x => continuation(x == q.Argument)) > 0;
-           });
+                return RaiseAsync(
+                   new NumericPromptEvent((TextId)Base.SystemText.MsgBox_EnterNumber, 0, 9999),
+                   x => continuation(x == q.Argument)) > 0;
+            });
+
+            // TODO
+            OnAsync(Do<QueryUnk1Event>(_ => false));
+            OnAsync(Do<QueryUnk4Event>(_ => false));
+            OnAsync(Do<QueryUnkCEvent>(_ => false));
+            OnAsync(Do<QueryUnk12Event>(_ => false));
+            OnAsync(Do<QueryUnk19Event>(_ => false));
+            OnAsync(Do<QueryUnk1EEvent>(_ => false));
+            OnAsync(Do<QueryUnk21Event>(_ => false));
+            OnAsync(Do<QueryUnk29Event>(_ => false));
+            OnAsync(Do<QueryUnk2AEvent>(_ => false));
         }
 /*
         bool Query(QueryEvent query, Action<bool> continuation)

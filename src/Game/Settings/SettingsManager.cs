@@ -1,5 +1,5 @@
 ﻿using System;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 using UAlbion.Api;
 using UAlbion.Config;
 using UAlbion.Core;
@@ -41,7 +41,7 @@ namespace UAlbion.Game.Settings
             On<EngineFlagEvent>(e => _settings.Flags = (EngineFlags)CoreUtil.UpdateFlag((uint)_settings.Flags, e.Operation, (uint)e.Flag));
         }
 
-        public void Save() => _settings.Save(Resolve<IGeneralConfig>(), Resolve<IFileSystem>());
+        public void Save() => _settings.Save(Resolve<IGeneralConfig>(), Resolve<IFileSystem>(), Resolve<IJsonUtil>());
 
         protected override void Subscribed()
         {

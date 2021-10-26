@@ -1,6 +1,6 @@
 {
-    "name":" Repacked",
-    "description": "Local location for unpacking/modifying and repacking assets",
-    "version": "0.1.0",
-    "dependencies": [ ]
+    "Name":"UAlbion-Unpacked",
+    "Description": "Local location for unpacking/modifying and repacking assets",
+    "Version": "0.1.0",
+    "Dependencies": [ "Shaders" ]
 }

@@ -19,10 +19,10 @@ namespace UAlbion.Formats.Parsers
             return text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None).Select(x => x.Trim());
         }
 
-        public object Serdes(object existing, AssetInfo info, AssetMapping mapping, ISerializer s)
-            => Serdes((Script)existing, info, mapping, s);
+        public object Serdes(object existing, AssetInfo info, AssetMapping mapping, ISerializer s, IJsonUtil jsonUtil)
+            => Serdes((Script)existing, info, mapping, s, jsonUtil);
 
-        public Script Serdes(Script script, AssetInfo info, AssetMapping mapping, ISerializer s)
+        public Script Serdes(Script script, AssetInfo info, AssetMapping mapping, ISerializer s, IJsonUtil jsonUtil)
         {
             if (s == null) throw new ArgumentNullException(nameof(s));
 
@@ -35,7 +35,7 @@ namespace UAlbion.Formats.Parsers
                     if (string.IsNullOrEmpty(line))
                         e = new CommentEvent(null);
                     else if (line.StartsWith(";", StringComparison.Ordinal))
-                        e = new CommentEvent(line.Substring(1));
+                        e = new CommentEvent(line[1..]);
                     else
                         e = Event.Parse(line);
 

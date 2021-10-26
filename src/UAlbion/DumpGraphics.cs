@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using UAlbion.Api.Visual;
 using UAlbion.Config;
 using UAlbion.Core;
 using UAlbion.Core.Veldrid.Textures;
@@ -12,9 +13,9 @@ using UAlbion.Game;
 
 namespace UAlbion
 {
-    static class DumpGraphics
+    class DumpGraphics : Component
     {
-        public static void Dump(IAssetManager assets, string baseDir, ISet<AssetType> types, DumpFormats formats, AssetId[] dumpIds)
+        public void Dump(string baseDir, ISet<AssetType> types, DumpFormats formats, AssetId[] dumpIds)
         {
             void Export<TEnum>(string name) where TEnum : unmanaged, Enum
             {
@@ -24,6 +25,7 @@ namespace UAlbion
 
                 var ids = Enum.GetValues(typeof(TEnum)).OfType<TEnum>().ToArray();
                 Console.WriteLine($"Dumping {ids.Length} assets to {directory}...");
+                var assets = Resolve<IAssetManager>();
                 foreach (var id in ids)
                 {
                     var assetId = AssetId.From(id);
@@ -52,8 +54,8 @@ namespace UAlbion
                     case AssetType.FullBodyPicture:     Export<Base.FullBodyPicture>  ("InventoryBackgrounds"); break;
                     case AssetType.TilesetGraphics:     Export<Base.TilesetGraphics>  ("Tiles");                break;
                     case AssetType.ItemGraphics:        Export<Base.ItemGraphics>     ("Item");                 break;
-                    case AssetType.LargeNpcGraphics:      Export<Base.LargeNpc>         ("NpcLarge");             break;
-                    case AssetType.LargePartyGraphics:    Export<Base.LargePartyMember> ("PartyLarge");           break;
+                    case AssetType.LargeNpcGraphics:    Export<Base.LargeNpc>         ("NpcLarge");             break;
+                    case AssetType.LargePartyGraphics:  Export<Base.LargePartyMember> ("PartyLarge");           break;
                     case AssetType.MonsterGraphics:     Export<Base.MonsterGraphics>  ("Monster");              break;
                     case AssetType.Picture:             Export<Base.Picture>          ("Picture");              break;
                     case AssetType.SmallNpcGraphics:    Export<Base.SmallNpc>         ("NpcSmall");             break;
@@ -72,7 +74,7 @@ namespace UAlbion
             public DumpFormats Format { get; set; }
         }
 
-        public static IList<ExportedImageInfo> ExportImage(
+        public IList<ExportedImageInfo> ExportImage(
             AssetId assetId,
             IAssetManager assets,
             string directory,
@@ -94,24 +96,24 @@ namespace UAlbion
             if (texture == null)
                 return filenames;
 
-            if (texture is TrueColorTexture trueColor)
+            if (texture is IReadOnlyTexture<uint> trueColor)
             {
                 var path = Path.Combine(directory, $"{assetId.Id}_{assetId}");
-                var image = trueColor.ToImage();
+                var image = ImageSharpUtil.ToImageSharp(trueColor.GetLayerBuffer(0));
                 Save(image, path, formats, filenames);
             }
-            else if (texture is VeldridEightBitTexture tilemap && (
+            else if (texture is IReadOnlyTexture<byte> tilemap && (
                 assetId.Type == AssetType.Font ||
                 assetId.Type == AssetType.TilesetGraphics ||
                 assetId.Type == AssetType.AutomapGraphics))
             {
                 if (palette == null)
                 {
-                    CoreUtil.LogError($"Could not load palette for {assetId}");
+                    Error($"Could not load palette for {assetId}");
                     return filenames;
                 }
 
-                var colors = tilemap.DistinctColors(null);
+                var colors = BlitUtil.DistinctColors(tilemap.PixelData);
                 int palettePeriod = palette.CalculatePeriod(colors);
 
                 for (int palFrame = 0; palFrame < palettePeriod; palFrame++)
@@ -119,21 +121,21 @@ namespace UAlbion
                     if (frameFilter != null && !frameFilter(0, palFrame))
                         continue;
                     var path = Path.Combine(directory, $"{assetId.Id}_{palFrame}_{assetId}");
-                    var image = tilemap.ToImage(palette.GetPaletteAtTime(palFrame));
+                    var image = ImageSharpUtil.ToImageSharp(tilemap.GetLayerBuffer(0), palette.GetPaletteAtTime(palFrame));
                     Save(image, path, formats, filenames);
                 }
             }
-            else if (texture is VeldridEightBitTexture ebt)
+            else if (texture is IReadOnlyTexture<byte> eightBit)
             {
-                for (int subId = 0; subId < ebt.SubImageCount; subId++)
+                for (int subId = 0; subId < eightBit.Regions.Count; subId++)
                 {
                     if (palette == null)
                     {
-                        CoreUtil.LogError($"Could not load palette for {assetId}");
+                        Error($"Could not load palette for {assetId}");
                         break;
                     }
 
-                    var colors = ebt.DistinctColors(subId);
+                    var colors = BlitUtil.DistinctColors(eightBit.GetRegionBuffer(subId));
                     int palettePeriod = palette.CalculatePeriod(colors);
 
                     for (int palFrame = 0; palFrame < palettePeriod; palFrame++)
@@ -141,7 +143,7 @@ namespace UAlbion
                         if (frameFilter != null && !frameFilter(subId, palFrame))
                             continue;
                         var path = Path.Combine(directory, $"{assetId.Id}_{subId}_{palFrame}_{assetId}");
-                        var image = ebt.ToImage(subId, palette.GetPaletteAtTime(palFrame));
+                        var image = ImageSharpUtil.ToImageSharp(eightBit.GetRegionBuffer(subId), palette.GetPaletteAtTime(palFrame));
                         Save(image, path, formats, filenames);
                     }
                 }

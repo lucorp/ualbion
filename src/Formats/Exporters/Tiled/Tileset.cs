@@ -8,6 +8,7 @@ using System.Xml.Serialization;
 using UAlbion.Api;
 using UAlbion.Config;
 using UAlbion.Formats.Assets;
+using UAlbion.Formats.Assets.Labyrinth;
 using UAlbion.Formats.Assets.Maps;
 
 // ReSharper disable StringLiteralTypo
@@ -22,13 +23,14 @@ namespace UAlbion.Formats.Exporters.Tiled
     {
         [XmlIgnore] public string Filename { get; set; }
         [XmlIgnore] public int GidOffset { get; set; }
-        [XmlElement("image", Order = 1)] public TilesetImage Image { get; set; }
-        [XmlArray("terraintypes", Order = 2)] [XmlArrayItem("terrain")] public List<TerrainType> TerrainTypes { get; } = new List<TerrainType>();
-        [XmlIgnore] public bool TerrainTypesSpecified => TerrainTypes != null && TerrainTypes.Count > 0;
-        [XmlElement("tile", Order = 3)] public List<Tile> Tiles { get; set; }
-        [XmlIgnore] public bool TilesSpecified => Tiles != null && Tiles.Count > 0;
-        [XmlArray("wangsets", Order = 4)] [XmlArrayItem("wangset")] public List<WangSet> WangSets { get; } = new List<WangSet>();
-        [XmlIgnore] public bool WangSetsSpecified => WangSets != null && WangSets.Count > 0;
+        [XmlElement("grid", Order = 1)] public TiledGrid Grid { get; set; }
+        [XmlElement("image", Order = 2)] public TilesetImage Image { get; set; }
+        [XmlArray("terraintypes", Order = 3)] [XmlArrayItem("terrain")] public List<TerrainType> TerrainTypes { get; } = new();
+        [XmlIgnore] public bool TerrainTypesSpecified => TerrainTypes is { Count: > 0 };
+        [XmlElement("tile", Order = 4)] public List<Tile> Tiles { get; set; }
+        [XmlIgnore] public bool TilesSpecified => Tiles is { Count: > 0 };
+        [XmlArray("wangsets", Order = 5)] [XmlArrayItem("wangset")] public List<WangSet> WangSets { get; } = new();
+        [XmlIgnore] public bool WangSetsSpecified => WangSets is { Count: > 0 };
 
         [XmlAttribute("margin")] public int Margin { get; set; }
         [XmlIgnore] public bool MarginSpecified => Margin != 0;
@@ -43,8 +45,8 @@ namespace UAlbion.Formats.Exporters.Tiled
         [XmlAttribute("tiledversion")] public string TiledVersion { get; set; }
         [XmlAttribute("backgroundcolor")] public string BackgroundColor { get; set; }
 
-        static TileFrame F(int id, int duration) => new TileFrame { Id = id, DurationMs = duration };
-        static WangTile W(int id, string wang) => new WangTile { TileId = id, WangId = wang };
+        static TileFrame F(int id, int duration) => new() { Id = id, DurationMs = duration };
+        static WangTile W(int id, string wang) => new() { TileId = id, WangId = wang };
 
         public static Tileset BuildExample()
         {
@@ -74,9 +76,9 @@ namespace UAlbion.Formats.Exporters.Tiled
             {
                 Corners = new List<WangCorner>
             {
-                new WangCorner { Name = "", Color = "#ff0000", Tile = -1, Probability = 1 },
-                new WangCorner { Name = "", Color = "#00ff00", Tile = -1, Probability = 1 },
-                new WangCorner { Name = "", Color = "#0000ff", Tile = -1, Probability = 1 },
+                new() { Name = "", Color = "#ff0000", Tile = -1, Probability = 1 },
+                new() { Name = "", Color = "#00ff00", Tile = -1, Probability = 1 },
+                new() { Name = "", Color = "#0000ff", Tile = -1, Probability = 1 },
             },
                 Tiles = new List<WangTile>
             {
@@ -131,57 +133,110 @@ namespace UAlbion.Formats.Exporters.Tiled
             serializer.Serialize(tw, this, ns);
         }
 
-        static TileProperty Prop(string name, string value, string type = null) => new TileProperty { Name = name, Type = type, Value = value };
-        public static Tileset FromAlbion(TilesetData tileset, TilemapProperties properties)
+        static TileProperty Property(string name, string value, string type = null) => new() { Name = name, Type = type, Value = value };
+
+        static List<TileProperty> BuildTileProperties(TileData x)
+        {
+            var properties = new List<TileProperty>();
+            if (x.Flags != 0) properties.Add(Property("Flags", x.Flags.ToString()));
+            properties.Add(Property("Layer", x.Layer.ToString()));
+            if (x.Collision != 0) properties.Add(Property("Passability", ((int)x.Collision).ToString(CultureInfo.InvariantCulture), "int"));
+            properties.Add(Property("Type", x.Type.ToString()));
+            properties.Add(Property("Unk7", x.Unk7.ToString(CultureInfo.InvariantCulture), "int"));
+            return properties;
+        }
+
+        static List<TileProperty> BuildIsoTileProperties(LabyrinthData labyrinth, int index, IsometricMode isoMode)
+        {
+            var properties = new List<TileProperty>();
+            if (index == 0) // First tile always blank
+                return properties;
+
+            if (isoMode == IsometricMode.Floors || isoMode == IsometricMode.Ceilings)
+            {
+                var floor = labyrinth.FloorAndCeilings[index - 1];
+                if (floor == null) return properties;
+                properties.Add(Property("Flags", floor.Properties.ToString()));
+                properties.Add(Property("Unk1", floor.Unk1.ToString(CultureInfo.InvariantCulture), "int"));
+                properties.Add(Property("Unk2", floor.Unk2.ToString(CultureInfo.InvariantCulture), "int"));
+                properties.Add(Property("Unk3", floor.Unk3.ToString(CultureInfo.InvariantCulture), "int"));
+                properties.Add(Property("Unk5", floor.Unk5.ToString(CultureInfo.InvariantCulture), "int"));
+                properties.Add(Property("Unk8", floor.Unk8.ToString(CultureInfo.InvariantCulture), "int"));
+            }
+
+            if (isoMode == IsometricMode.Walls)
+            {
+                var wall = labyrinth.Walls[index - 1];
+                if (wall == null) return properties;
+                properties.Add(Property("AutoGfx", wall.AutoGfxType.ToString(CultureInfo.InvariantCulture), "int"));
+                properties.Add(Property("Collision", wall.Collision.ToString(CultureInfo.InvariantCulture), "int"));
+                properties.Add(Property("Flags", wall.Properties.ToString()));
+                properties.Add(Property("Unk9", wall.Unk9.ToString(CultureInfo.InvariantCulture), "int"));
+            }
+
+            if (isoMode == IsometricMode.Contents)
+            {
+                var group = labyrinth.ObjectGroups[index - 1];
+                properties.Add(Property("AutoGfx", group.AutoGraphicsId.ToString(CultureInfo.InvariantCulture), "int"));
+                var objects = group.SubObjects
+                    .Where(x => x != null)
+                    .Select(x => x.ObjectInfoNumber >= labyrinth.Objects.Count ? null : labyrinth.Objects[x.ObjectInfoNumber])
+                    .Where(x => x != null)
+                    .ToList();
+
+                properties.Add(Property("Collision", string.Join("; ", objects.Select(x => x.Collision))));
+                properties.Add(Property("Flags", string.Join("; ", objects.Select(x => x.Properties))));
+                properties.Add(Property("Unk7", string.Join("; ", objects.Select(x => x.Unk7))));
+            }
+
+            return properties;
+        }
+
+        static Tile BuildTile(int id, int index, ushort? imageNumber, List<TileProperty> tileProperties, Tilemap2DProperties properties)
+        {
+            var source = imageNumber switch
+            {
+                null => null,
+                0xffff => properties.BlankTilePath,
+                _ => string.Format(CultureInfo.InvariantCulture,
+                        properties.GraphicsTemplate,
+                        id,
+                        imageNumber
+                )
+            };
+
+            return new Tile
+            {
+                Id = index,
+                Properties = tileProperties,
+                Image = source == null ? null : new TilesetImage
+                {
+                    Width = properties.TileWidth,
+                    Height = properties.TileHeight,
+                    Source = source
+                }
+            };
+        }
+
+        public static Tileset FromAlbion(TilesetData tileset, Tilemap2DProperties properties)
         {
             if (tileset == null) throw new ArgumentNullException(nameof(tileset));
             if (properties == null) throw new ArgumentNullException(nameof(properties));
 
-            static List<TileProperty> Props(TileData x)
-            {
-                var properties = new List<TileProperty>();
-                if (x.Flags != 0) properties.Add(Prop("Flags", x.Flags.ToString()));
-                properties.Add(Prop("Layer", x.Layer.ToString()));
-                if (x.Collision != 0) properties.Add(Prop("Passability", ((int)x.Collision).ToString(CultureInfo.InvariantCulture), "int"));
-                properties.Add(Prop("Type", x.Type.ToString()));
-                properties.Add(Prop("Unk7", x.Unk7.ToString(CultureInfo.InvariantCulture), "int"));
-                return properties;
-            }
-
-            Tile BuildTile(int index, ushort? imageNumber, List<TileProperty> tileProperties)
-            {
-                var source = imageNumber switch
-                    {
-                        null => null,
-                        0xffff => properties.BlankTilePath,
-                        _ => string.Format(CultureInfo.InvariantCulture,
-                                properties.GraphicsTemplate,
-                                tileset.Id.Id,
-                                imageNumber
-                        )
-                    };
-
-                return new Tile
-                {
-                    Id = index,
-                    Properties = tileProperties,
-                    Image = source == null ? null : new TilesetImage
-                    {
-                        Width = properties.TileWidth,
-                        Height = properties.TileHeight,
-                        Source = source
-                    }
-                };
-            }
-
-            List<Tile> tiles = 
+            List<Tile> tiles =
                 tileset.Tiles
                 .Where(x => !x.IsBlank)
-                .Select(x => BuildTile(x.Index, x.FrameCount > 0 ? x.ImageNumber : (ushort?)null, Props(x)))
+                .Select(x =>
+                    BuildTile(
+                        tileset.Id.Id,
+                        x.Index,
+                        x.FrameCount > 0 ? x.ImageNumber : null,
+                        BuildTileProperties(x),
+                        properties))
                 .ToList();
 
             // Add tiles for the extra frames of animated tiles
-            int nextId = tileset.Tiles[tileset.Tiles.Count - 1].Index + 1;
+            int nextId = tileset.Tiles[^1].Index + 1;
             int maxTile = tiles.Count;
             for (int i = 0; i < maxTile; i++)
             {
@@ -190,13 +245,15 @@ namespace UAlbion.Formats.Exporters.Tiled
                 if (sourceTile.FrameCount <= 1)
                     continue;
 
-                tile.Frames = new List<TileFrame> { new TileFrame(tile.Id, properties.FrameDurationMs) };
+                tile.Frames = new List<TileFrame> { new(tile.Id, properties.FrameDurationMs) };
                 for (int f = 1; f < sourceTile.FrameCount; f++)
                 {
                     tiles.Add(BuildTile(
+                        tileset.Id.Id,
                         nextId,
                         (ushort)(sourceTile.ImageNumber + f),
-                        new List<TileProperty> { Prop("Frame", "true", "boolean") }));
+                        new List<TileProperty> { Property("Frame", "true", "boolean") },
+                        properties));
 
                     tile.Frames.Add(new TileFrame(nextId, properties.FrameDurationMs));
                     nextId++;
@@ -218,6 +275,66 @@ namespace UAlbion.Formats.Exporters.Tiled
                 Tiles = tiles,
                 // TODO: Terrain
                 // wang sets
+            };
+        }
+
+        public static Tileset FromLabyrinth(LabyrinthData labyrinth, Tilemap3DProperties properties, List<int>[] allFrames)
+        {
+            if (labyrinth == null) throw new ArgumentNullException(nameof(labyrinth));
+            if (properties == null) throw new ArgumentNullException(nameof(properties));
+            if (allFrames == null) throw new ArgumentNullException(nameof(allFrames));
+
+            List<Tile> tiles =
+                allFrames
+                .Select((x, i) => new Tile { Id = i, Properties = BuildIsoTileProperties(labyrinth, i, properties.IsoMode) })
+                .ToList();
+
+            // Add tiles for the extra frames of animated tiles
+            for (int i = 0; i < allFrames.Length; i++)
+            {
+                var frames = allFrames[i];
+                if (frames.Count <= 1)
+                    continue;
+
+                var tile = tiles[i];
+                tile.Frames = frames.Select(x => new TileFrame(x, properties.FrameDurationMs)).ToList();
+                for (int f = 1; f < frames.Count; f++)
+                {
+                    tiles.Add(new Tile
+                    {
+                        Id = (ushort)frames[f],
+                        Properties = new List<TileProperty> { Property("Frame", "true", "boolean") }
+                    });
+                }
+            }
+
+            var relativeGraphicsPath = ConfigUtil.GetRelativePath(
+                properties.ImagePath,
+                Path.GetDirectoryName(properties.TilesetPath),
+                true);
+
+            return new Tileset
+            {
+                Name = labyrinth.Id.ToString(),
+                Version = "1.4",
+                TiledVersion = "1.4.2",
+                TileCount = tiles.Count,
+                TileWidth = properties.TileWidth,
+                TileHeight = properties.TileHeight,
+                BackgroundColor = "#000000",
+                Tiles = tiles,
+                Grid = new TiledGrid
+                {
+                    Orientation = "isometric",
+                    Width = properties.TileWidth,
+                    Height = properties.TileHeight,
+                },
+                Image = new TilesetImage
+                {
+                    Source = relativeGraphicsPath,
+                    Width = properties.ImageWidth,
+                    Height = properties.ImageHeight,
+                }
             };
         }
 
@@ -245,14 +362,14 @@ namespace UAlbion.Formats.Exporters.Tiled
                         Height = x.Height
                     },
                     Properties = new List<TileProperty>
-                        {
-                            Prop("Visual", x.Name)
-                        }
+                    {
+                        Property("Visual", x.Name)
+                    }
                 }).ToList(),
             };
         }
 
-        static TileData InterpretTile(Tile tile, TilemapProperties properties)
+        static TileData InterpretTile(Tile tile, Tilemap2DProperties properties)
         {
             ushort SourceStringToImageNumber(string source)
             {
@@ -283,7 +400,7 @@ namespace UAlbion.Formats.Exporters.Tiled
                     case "FLAGS": result.Flags = (TileFlags)Enum.Parse(typeof(TileFlags), prop.Value); break;
                     case "LAYER": result.Layer = (TileLayer)Enum.Parse(typeof(TileLayer), prop.Value); break;
                     case "PASSABILITY":
-                        result.Collision = (Passability) int.Parse(prop.Value, CultureInfo.InvariantCulture);
+                        result.Collision = (Passability)int.Parse(prop.Value, CultureInfo.InvariantCulture);
                         //Enum.Parse(typeof(Passability), prop.Value); 
                         break;
                     case "TYPE": result.Type = (TileType)Enum.Parse(typeof(TileType), prop.Value); break;
@@ -295,7 +412,7 @@ namespace UAlbion.Formats.Exporters.Tiled
             return result;
         }
 
-        public TilesetData ToAlbion(TilesetId id, TilemapProperties properties)
+        public TilesetData ToAlbion(TilesetId id, Tilemap2DProperties properties)
         {
             if (properties == null) throw new ArgumentNullException(nameof(properties));
 

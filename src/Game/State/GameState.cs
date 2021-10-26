@@ -21,6 +21,7 @@ namespace UAlbion.Game.State
         Party _party;
 
         public DateTime Time => SavedGame.Epoch + (_game?.ElapsedTime ?? TimeSpan.Zero);
+        public float PaletteBlend => MathF.Cos((float)Time.TimeOfDay.TotalDays * MathF.PI * 2 * 60) * 0.5f + 0.5f;
         public IParty Party => _party;
         public ICharacterSheet GetSheet(CharacterId id) => _game.Sheets.TryGetValue(id, out var sheet) ? sheet : null;
         public short GetTicker(TickerId id) => _game.Tickers.TryGetValue(id, out var value) ? value : (short)0;
@@ -64,11 +65,11 @@ namespace UAlbion.Game.State
                 _game.Tickers.TryGetValue(e.TickerId, out var curValue);
                 _game.Tickers[e.TickerId] = (byte)e.Operation.Apply(curValue, e.Amount, 0, 255);
             });
-            On<ChangeTimeEvent>(e => { });
+            On<ChangeTimeEvent>(_ => { });
             On<ActivateItemEvent>(ActivateItem);
             On<DisableEventChainEvent>(e =>
             {
-                _game.DisabledChains.Add((e.ChainSource, (ushort) e.ChainNumber));
+                _game.DisabledChains.Add((e.ChainSource, e.ChainNumber));
             });
 
             AttachChild(new InventoryManager(GetWriteableInventory));
@@ -118,7 +119,7 @@ namespace UAlbion.Game.State
                 ActiveMembers = { [0] = Base.PartyMember.Tom }
             };
 
-            foreach (var id in AssetMapping.Global.EnumerateAssetsOfType(AssetType.PartyMember))
+            foreach (var id in AssetMapping.Global.EnumerateAssetsOfType(AssetType.Party))
                 _game.Sheets.Add(id, assets.LoadSheet(id));
 
             foreach (var id in AssetMapping.Global.EnumerateAssetsOfType(AssetType.Npc))
@@ -137,12 +138,15 @@ namespace UAlbion.Game.State
         {
             var generalConfig = Resolve<IGeneralConfig>();
             // TODO: This path currently exists in two places: here and Game\Gui\Menus\PickSaveSlot.cs
-            return generalConfig.ResolvePath($"$(SAVE)/SAVE.{id:D3}", null);
+            return generalConfig.ResolvePath($"$(SAVE)/SAVE.{id:D3}");
         }
 
         void LoadGame(ushort id)
         {
             _game = Resolve<IAssetManager>().LoadSavedGame(IdToPath(id));
+            if (_game == null)
+                return;
+
             InitialiseGame();
         }
 
@@ -152,6 +156,7 @@ namespace UAlbion.Game.State
                 return;
 
             var disk = Resolve<IFileSystem>();
+            var spellManager = Resolve<ISpellManager>();
             _game.Name = name;
 
             for (int i = 0; i < SavedGame.MaxPartySize; i++)
@@ -164,7 +169,7 @@ namespace UAlbion.Game.State
             using var bw = new BinaryWriter(stream);
             var mapping = new AssetMapping(); // TODO
             using var aw = new AlbionWriter(bw);
-            SavedGame.Serdes(_game, mapping, aw);
+            SavedGame.Serdes(_game, mapping, aw, spellManager);
         }
 
         void InitialiseGame()

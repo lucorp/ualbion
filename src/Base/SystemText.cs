@@ -1,12 +1,8 @@
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-
 // ReSharper disable InconsistentNaming
 // ReSharper disable UnusedMember.Global
 #pragma warning disable CA1707 // Identifiers should not contain underscores
 namespace UAlbion.Base
 {
-    [JsonConverter(typeof(StringEnumConverter))]
     public enum SystemText : ushort
     {
         PartyPortrait_XLifeMana = 0,

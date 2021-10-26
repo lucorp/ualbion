@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using UAlbion.Api;
 using UAlbion.Config;
 using UAlbion.Formats;
 using UAlbion.Formats.Assets;
@@ -51,7 +52,7 @@ namespace UAlbion
                     case AssetType.Monster: MonsterCharacterSheets(assets, tf, baseDir, dumpIds); break;
                     case AssetType.MonsterGroup: MonsterGroups(assets, baseDir, dumpIds); break;
                     case AssetType.Npc: NpcCharacterSheets(assets, tf, baseDir, dumpIds); break;
-                    case AssetType.PartyMember: PartyCharacterSheets(assets, tf, baseDir, dumpIds); break;
+                    case AssetType.Party: PartyCharacterSheets(assets, tf, baseDir, dumpIds); break;
                     case AssetType.Script: Scripts(assets, baseDir, dumpIds); break;
                     case AssetType.Spell: Spells(assets, baseDir, dumpIds); break;
                 }
@@ -250,7 +251,7 @@ namespace UAlbion
                     {
                         sw.WriteLine($"        EventChain: {npc.Chain}");
                         var formatter = new EventFormatter(assets.LoadString, id.ToMapText());
-                        sw.WriteLine(formatter.FormatChain(npc.Node, "          "));
+                        sw.WriteLine(formatter.FormatChain(npc.Node, 2));
                     }
                 }
                 sw.WriteLine();
@@ -309,8 +310,14 @@ namespace UAlbion
             if (c.Magic.SpellStrengths.Any())
             {
                 sw.WriteLine($"    Magic: (SP:{c.Magic.SpellPoints}/{c.Magic.SpellPointsMax}) Classes: {c.Magic.SpellClasses}");
-                foreach(var spell in c.Magic.SpellStrengths)
-                    sw.WriteLine($"        {spell.Key} {spell.Value.Item2} ({(spell.Value.Item1 ? "Learnt": "Unknown")})");
+                for (int i = 0; i < CharacterSheet.MaxSpellsPerSchool * CharacterSheet.SpellSchoolCount; i++)
+                {
+                    var spellId = new SpellId(AssetType.Spell, i + 1);
+                    bool known = c.Magic.KnownSpells.Contains(spellId);
+                    c.Magic.SpellStrengths.TryGetValue(spellId, out var strength);
+                    if (known || strength > 0)
+                        sw.WriteLine($"        {spellId} {strength} ({(known ? "Learnt": "Unknown")})");
+                }
             }
 
             sw.WriteLine($"    WordSetId:{c.WordSetId}");

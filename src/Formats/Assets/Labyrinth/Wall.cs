@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Text.Json.Serialization;
 using SerdesNet;
 using UAlbion.Config;
 
@@ -11,7 +13,7 @@ namespace UAlbion.Formats.Assets.Labyrinth
         [Flags]
         public enum WallFlags : byte
         {
-            Unknown0 = 1,
+            BackAndForth = 1,
             SelfIlluminating = 1 << 1,
             WriteOverlay = 1 << 2,
             Unk3 = 1 << 3,
@@ -24,13 +26,14 @@ namespace UAlbion.Formats.Assets.Labyrinth
         public WallFlags Properties { get; set; } // 0
         public uint Collision { get; set; } // 1, len = 3 bytes
         public SpriteId SpriteId { get; set; } // 4, ushort
+        [DefaultValue(1)]
         public byte AnimationFrames { get; set; } // 6
         public byte AutoGfxType { get; set; } // 7
         public byte TransparentColour { get; set; } // 8 (PaletteId??)
         public byte Unk9 { get; set; } // 9
         public ushort Width { get; set; } // A
         public ushort Height { get; set; } // C
-        public IList<Overlay> Overlays { get; } = new List<Overlay>();
+        [JsonInclude] public IList<Overlay> Overlays { get; private set; } = new List<Overlay>();
 
         public override string ToString() =>
             $"Wall.{SpriteId}:{AnimationFrames} {Width}x{Height} ({Properties}) [ {string.Join(", ", Overlays.Select(x => x.ToString()))} ]";

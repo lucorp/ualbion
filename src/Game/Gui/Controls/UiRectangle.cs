@@ -2,7 +2,6 @@
 using UAlbion.Api.Visual;
 using UAlbion.Core;
 using UAlbion.Core.Events;
-using UAlbion.Core.Textures;
 using UAlbion.Core.Visual;
 using UAlbion.Formats.Assets;
 
@@ -64,25 +63,30 @@ namespace UAlbion.Game.Gui.Controls
             var sm = Resolve<ISpriteManager>();
             var commonColors = Resolve<ICommonColors>();
 
-            var key = new SpriteKey(commonColors.BorderTexture, order, SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
+            var key = new SpriteKey(commonColors.BorderTexture, SpriteSampler.Point, order, SpriteKeyFlags.NoDepthTest | SpriteKeyFlags.NoTransform);
             if (key != _sprite?.Key)
             {
                 _sprite?.Dispose();
                 _sprite = sm.Borrow(key, 1, this);
             }
 
-            var instances = _sprite.Access();
-            var subImage = new SubImage(
+            var subImage = new Region(
                 Vector2.Zero,
                 Vector2.One,
                 Vector2.One,
                 (int)commonColors.Palette[_color]);
 
-            instances[0] = SpriteInstanceData.TopLeft(
-                position,
-                window.UiToNormRelative(DrawSize),
-                subImage,
-                SpriteFlags.None);
+            bool lockWasTaken = false;
+            var instances = _sprite.Lock(ref lockWasTaken);
+            try
+            {
+                instances[0] = new SpriteInstanceData(
+                    position,
+                    window.UiToNormRelative(DrawSize),
+                    subImage,
+                    SpriteFlags.TopLeft);
+            }
+            finally { _sprite.Unlock(lockWasTaken); }
         }
 
         public override int Render(Rectangle extents, int order)

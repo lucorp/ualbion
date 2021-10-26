@@ -9,6 +9,7 @@ using UAlbion.Core;
 using UAlbion.Formats;
 using UAlbion.Formats.Assets.Save;
 using UAlbion.Game.Assets;
+using UAlbion.Game.Magic;
 using UAlbion.Game.Settings;
 
 namespace DumpSave
@@ -31,10 +32,10 @@ namespace DumpSave
 
         static readonly Command[] Commands =
         {
-            new Command("dve", DumpVisitedEvents, "Dump Visited Events: Dump details of events and conversation paths that have been triggered."),
-            new Command("dtc", DumpTempMapChanges, "Dump Temp Changes: Dump details of temporary changes to the current map."),
-            new Command("dpc", DumpPermMapChanges, "Dump Perm Changes: Dump details of permanent changes to all maps."),
-            new Command("dn", DumpNpcs, "Dump NPC states: Dump details of NPCs on the current map.")
+            new("dve", DumpVisitedEvents, "Dump Visited Events: Dump details of events and conversation paths that have been triggered."),
+            new("dtc", DumpTempMapChanges, "Dump Temp Changes: Dump details of temporary changes to the current map."),
+            new("dpc", DumpPermMapChanges, "Dump Perm Changes: Dump details of permanent changes to all maps."),
+            new("dn", DumpNpcs, "Dump NPC states: Dump details of NPCs on the current map.")
         };
 
         static void DumpVisitedEvents(SavedGame save)
@@ -143,11 +144,11 @@ namespace DumpSave
             }
         }
 
-        static bool VerifyRoundTrip(Stream fileStream, SavedGame save, AssetMapping mapping)
+        static bool VerifyRoundTrip(Stream fileStream, SavedGame save, AssetMapping mapping, ISpellManager spellManager)
         {
             using var ms = new MemoryStream((int)fileStream.Length);
             using var bw = new BinaryWriter(ms, Encoding.GetEncoding(850));
-            SavedGame.Serdes(save, mapping, new AlbionWriter(bw));
+            SavedGame.Serdes(save, mapping, new AlbionWriter(bw), spellManager);
 
             if (ms.Position != fileStream.Length)
             {
@@ -176,6 +177,7 @@ namespace DumpSave
         static void Main(string[] args)
         {
             var disk = new FileSystem();
+            var jsonUtil = new FormatJsonUtil();
             var baseDir = ConfigUtil.FindBasePath(disk);
             if (baseDir == null)
                 throw new InvalidOperationException("No base directory could be found.");
@@ -190,14 +192,15 @@ namespace DumpSave
             var filename = args[0];
             var stream = disk.OpenRead(filename);
             using var br = new BinaryReader(stream, Encoding.GetEncoding(850));
-            var generalConfig = GeneralConfig.Load(Path.Combine(baseDir, "data", "config.json"), baseDir, disk);
-            var settings = GeneralSettings.Load(generalConfig, disk);
+            var generalConfig = GeneralConfig.Load(Path.Combine(baseDir, "data", "config.json"), baseDir, disk, jsonUtil);
+            var settings = GeneralSettings.Load(generalConfig, disk, jsonUtil);
             var settingsManager = new SettingsManager(settings);
             var assets = new AssetManager();
             var loaderRegistry = new AssetLoaderRegistry();
             var containerLoaderRegistry = new ContainerRegistry();
             var postProcessorRegistry = new PostProcessorRegistry();
             var modApplier = new ModApplier();
+            var spellManager = new SpellManager();
 
             var exchange = new EventExchange(new LogExchange());
             exchange
@@ -208,12 +211,13 @@ namespace DumpSave
                 .Attach(postProcessorRegistry)
                 .Attach(modApplier)
                 .Attach(assets)
+                .Attach(spellManager)
                 ;
 
             modApplier.LoadMods(generalConfig, settings.ActiveMods);
-            var save = SavedGame.Serdes(null, AssetMapping.Global, new AlbionReader(br, stream.Length));
+            var save = SavedGame.Serdes(null, AssetMapping.Global, new AlbionReader(br, stream.Length), spellManager);
 
-            if (!VerifyRoundTrip(stream, save, AssetMapping.Global))
+            if (!VerifyRoundTrip(stream, save, AssetMapping.Global, spellManager))
                 return;
 
             foreach (var command in commands)

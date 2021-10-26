@@ -6,6 +6,7 @@ using UAlbion.Config;
 using UAlbion.Core;
 using UAlbion.Formats.Config;
 using UAlbion.Game.Assets;
+using UAlbion.Game.Magic;
 using UAlbion.Game.Settings;
 using UAlbion.Game.Text;
 using UAlbion.Game.Veldrid.Debugging;
@@ -14,20 +15,22 @@ namespace UAlbion
 {
     public static class AssetSystem
     {
-        public static async Task<(EventExchange, IContainer)> SetupAsync(string baseDir, IFileSystem disk, ICoreFactory factory)
+        public static async Task<(EventExchange, IContainer)> SetupAsync(string baseDir, IFileSystem disk, IJsonUtil jsonUtil)
         {
             var configAndSettingsTask = Task.Run(() =>
             {
-                var config = LoadGeneralConfig(baseDir, disk);
-                var settings = LoadSettings(config, disk);
+                var config = LoadGeneralConfig(baseDir, disk, jsonUtil);
+                var settings = LoadSettings(config, disk, jsonUtil);
                 return (config, settings);
             });
-            var coreConfigTask = Task.Run(() => LoadCoreConfig(baseDir, disk));
-            var gameConfigTask = Task.Run(() => LoadGameConfig(baseDir, disk));
-            return await SetupCore(disk, factory, configAndSettingsTask, coreConfigTask, gameConfigTask).ConfigureAwait(false);
+            var coreConfigTask = Task.Run(() => LoadCoreConfig(baseDir, disk, jsonUtil));
+            var gameConfigTask = Task.Run(() => LoadGameConfig(baseDir, disk, jsonUtil));
+            return await SetupCore(disk, jsonUtil, configAndSettingsTask, coreConfigTask, gameConfigTask).ConfigureAwait(false);
         }
 
-        public static EventExchange Setup(IFileSystem disk, ICoreFactory factory,
+        public static EventExchange Setup(
+            IFileSystem disk,
+            IJsonUtil jsonUtil,
             GeneralConfig generalConfig,
             GeneralSettings settings,
             CoreConfig coreConfig,
@@ -36,19 +39,19 @@ namespace UAlbion
             var configAndSettingsTask = Task.FromResult((generalConfig, settings));
             var coreConfigTask = Task.FromResult(coreConfig);
             var gameConfigTask = Task.FromResult(gameConfig);
-            var task = SetupCore(disk, factory, configAndSettingsTask, coreConfigTask, gameConfigTask);
+            var task = SetupCore(disk, jsonUtil, configAndSettingsTask, coreConfigTask, gameConfigTask);
             return task.Result.Item1;
         }
 
         static async Task<(EventExchange, IContainer)> SetupCore(
             IFileSystem disk,
-            ICoreFactory factory,
+            IJsonUtil jsonUtil,
             Task<(GeneralConfig, GeneralSettings)> configAndSettingsTask,
             Task<CoreConfig> coreConfigTask,
             Task<GameConfig> gameConfigTask)
         {
             if (disk == null) throw new ArgumentNullException(nameof(disk));
-            if (factory == null) throw new ArgumentNullException(nameof(factory));
+            if (jsonUtil == null) throw new ArgumentNullException(nameof(jsonUtil));
             if (configAndSettingsTask == null) throw new ArgumentNullException(nameof(configAndSettingsTask));
             if (coreConfigTask == null) throw new ArgumentNullException(nameof(coreConfigTask));
             if (gameConfigTask == null) throw new ArgumentNullException(nameof(gameConfigTask));
@@ -61,26 +64,25 @@ namespace UAlbion
                 new AssetLoaderRegistry(),
                 new ContainerRegistry(),
                 new PostProcessorRegistry(),
-                new MetafontBuilder(factory),
+                new MetafontBuilder(),
                 new StdioConsoleLogger(),
                 // new ClipboardManager(),
                 new ImGuiConsoleLogger(),
                 new WordLookup(),
                 new AssetLocator(),
                 modApplier,
-                new AssetManager());
+                new AssetManager(),
+                new SpellManager());
 
 #pragma warning disable CA2000 // Dispose objects before losing scope
             var exchange = new EventExchange(new LogExchange())
                 .Register<IGeneralConfig>(generalConfig)
-                .Register(factory)
                 .Register(disk)
+                .Register(jsonUtil)
                 .Attach(services);
 #pragma warning restore CA2000 // Dispose objects before losing scope
 
             PerfTracker.StartupEvent("Registered asset services");
-
-            Engine.GlobalExchange = exchange;
 
             modApplier.LoadMods(generalConfig, settings.ActiveMods);
             AssetMapping.Global.ConsistencyCheck();
@@ -95,30 +97,30 @@ namespace UAlbion
             return (exchange, services);
         }
 
-        public static GeneralConfig LoadGeneralConfig(string baseDir, IFileSystem disk)
+        public static GeneralConfig LoadGeneralConfig(string baseDir, IFileSystem disk, IJsonUtil jsonUtil)
         {
-            var result = GeneralConfig.Load(Path.Combine(baseDir, "data", "config.json"), baseDir, disk);
+            var result = GeneralConfig.Load(Path.Combine(baseDir, "data", "config.json"), baseDir, disk, jsonUtil);
             PerfTracker.StartupEvent("Loaded general config");
             return result;
         }
 
-        static GeneralSettings LoadSettings(IGeneralConfig config, IFileSystem disk)
+        static GeneralSettings LoadSettings(IGeneralConfig config, IFileSystem disk, IJsonUtil jsonUtil)
         {
-            var result = GeneralSettings.Load(config, disk);
+            var result = GeneralSettings.Load(config, disk, jsonUtil);
             PerfTracker.StartupEvent("Loaded settings");
             return result;
         }
 
-        static CoreConfig LoadCoreConfig(string baseDir, IFileSystem disk)
+        static CoreConfig LoadCoreConfig(string baseDir, IFileSystem disk, IJsonUtil jsonUtil)
         {
-            var result = CoreConfig.Load(Path.Combine(baseDir, "data", "core.json"), disk);
+            var result = CoreConfig.Load(Path.Combine(baseDir, "data", "core.json"), disk, jsonUtil);
             PerfTracker.StartupEvent("Loaded core config");
             return result;
         }
 
-        public static GameConfig LoadGameConfig(string baseDir, IFileSystem disk)
+        public static GameConfig LoadGameConfig(string baseDir, IFileSystem disk, IJsonUtil jsonUtil)
         {
-            var result = GameConfig.Load(Path.Combine(baseDir, "data", "game.json"), disk);
+            var result = GameConfig.Load(Path.Combine(baseDir, "data", "game.json"), disk, jsonUtil);
             PerfTracker.StartupEvent("Loaded game config");
             return result;
         }

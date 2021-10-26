@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Numerics;
+using UAlbion.Api;
 using UAlbion.Api.Visual;
 using UAlbion.Core.Events;
-using UAlbion.Core.Textures;
 
 namespace UAlbion.Core.Visual
 {
@@ -20,14 +20,20 @@ namespace UAlbion.Core.Visual
         bool _dirty = true;
 
         public static Sprite CharacterSprite(IAssetId id) =>
-            new Sprite(id, Vector3.Zero, DrawLayer.Character, 0, SpriteFlags.BottomAligned);
+            new(id, Vector3.Zero, DrawLayer.Character, 0, SpriteFlags.BottomAligned);
 
         public static Sprite ScreenSpaceSprite(IAssetId id, Vector2 position, Vector2 size) =>
-            new Sprite(id, new Vector3(position, 0), DrawLayer.Interface,
+            new(id, new Vector3(position, 0), DrawLayer.Interface,
                 SpriteKeyFlags.NoTransform,
                 SpriteFlags.LeftAligned) { Size = size };
 
-        public Sprite(IAssetId id, Vector3 position, DrawLayer layer, SpriteKeyFlags keyFlags, SpriteFlags flags, Func<IAssetId, ITexture> loaderFunc = null)
+        public Sprite(
+            IAssetId id,
+            Vector3 position,
+            DrawLayer layer,
+            SpriteKeyFlags keyFlags,
+            SpriteFlags flags,
+            Func<IAssetId, ITexture> loaderFunc = null)
         {
             On<BackendChangedEvent>(_ => Dirty = true);
             On<RenderEvent>(e => UpdateSprite());
@@ -69,7 +75,7 @@ namespace UAlbion.Core.Visual
                     Raise(new PositionedComponentMovedEvent(this));
             }
         }
-        public Vector3 Dimensions => new Vector3(Size.X, Size.Y, Size.X);
+        public Vector3 Dimensions => new(Size.X, Size.Y, Size.X);
         public int DebugZ => DepthUtil.DepthToLayer(Position.Z);
 
         public Vector2 Size
@@ -91,13 +97,9 @@ namespace UAlbion.Core.Visual
             get => _frame;
             set
             {
-                if (_frame == value || FrameCount == 0) return;
-
-                while (FrameCount > 0 && value >= FrameCount)
-                    value -= FrameCount;
-
+                if (_frame == value || FrameCount <= 1) return;
+                value %= FrameCount;
                 if (_frame == value) return;
-
                 _frame = value;
                 Dirty = true;
             }
@@ -141,8 +143,6 @@ namespace UAlbion.Core.Visual
                 return;
             Dirty = false;
 
-            var sm = Resolve<ISpriteManager>();
-
             if (_sprite == null)
             {
                 var texture = _loaderFunc(Id);
@@ -153,29 +153,33 @@ namespace UAlbion.Core.Visual
                     return;
                 }
 
-                FrameCount = texture.SubImageCount;
+                FrameCount = texture.Regions.Count;
 
                 var frame = _frame; // Ensure frame is in bounds.
                 Frame = 0;
                 Frame = frame;
 
-                var key = new SpriteKey(texture, _layer, _keyFlags);
+                var key = new SpriteKey(texture, SpriteSampler.Point, _layer, _keyFlags);
+                var sm = Resolve<ISpriteManager>();
                 _sprite = sm.Borrow(key, 1, this);
             }
 
-            var instances = _sprite.Access();
-            var subImage = (SubImage)_sprite.Key.Texture.GetSubImage(Frame);
-
-            if (_size == null)
-                Size = subImage.Size;
-            instances[0] = SpriteInstanceData.CopyFlags(_position, Size, subImage, _flags);
+            var subImage = _sprite.Key.Texture.Regions[Frame];
+            _size ??= subImage.Size;
+            _sprite.Update(0, _position, Size, subImage, _flags);
         }
 
         bool Select(WorldCoordinateSelectEvent e, Action<Selection> continuation)
         {
+            if (_sprite == null)
+                return false;
+
             var hit = RayIntersect(e.Origin, e.Direction);
             if (!hit.HasValue)
                 return false;
+
+            if ((Resolve<IEngineSettings>().Flags & EngineFlags.HighlightSelection) != 0)
+                _sprite.UpdateFlags(0, SpriteFlags.Highlight);
 
             var selected = Selected;
             bool delegated = false;
